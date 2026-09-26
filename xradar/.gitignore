@@ -1,0 +1,8 @@
+# Local configuration holds your topics; the database holds fetched data.
+config.json
+*.db
+*.db-wal
+*.db-shm
+.env
+__pycache__/
+*.pyc
