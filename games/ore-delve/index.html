@@ -1,0 +1,2189 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>ORE DELVE — Deep Mine</title>
+<style>
+  :root{
+    --bg:#07080c; --panel:#11141d; --panel2:#171b27; --line:#2a3145;
+    --ink:#e7ecf5; --dim:#8d97ae; --gold:#ffc14d; --acc:#5fd0ff; --ok:#6ee7a0; --bad:#ff6b6b;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%;background:var(--bg);color:var(--ink);
+    font-family:"SF Mono",ui-monospace,Menlo,Consolas,monospace;overflow:hidden}
+  #stage{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;background:#04050a}
+  canvas{display:block;image-rendering:pixelated;box-shadow:0 0 80px rgba(0,0,0,.9)}
+  /* ---------- start panel ---------- */
+  #boot{position:fixed;inset:0;display:flex;align-items:center;justify-content:center;
+    background:radial-gradient(1200px 700px at 50% 20%,#141a29 0%,#06070c 70%);z-index:20;overflow:auto;padding:24px}
+  .card{width:min(760px,96vw);background:var(--panel);border:1px solid var(--line);border-radius:14px;
+    padding:26px 28px 22px;box-shadow:0 24px 80px rgba(0,0,0,.6)}
+  .title{font-size:30px;letter-spacing:6px;margin:0 0 2px;color:var(--gold)}
+  .sub{color:var(--dim);font-size:12px;letter-spacing:2px;margin:0 0 20px}
+  .row{display:flex;gap:18px;flex-wrap:wrap;margin-bottom:16px}
+  .col{flex:1 1 220px;min-width:200px}
+  label{display:block;font-size:11px;letter-spacing:2px;color:var(--dim);margin-bottom:6px;text-transform:uppercase}
+  select,input{width:100%;background:var(--panel2);color:var(--ink);border:1px solid var(--line);
+    border-radius:8px;padding:10px 12px;font:inherit;font-size:13px;outline:none}
+  select:focus,input:focus{border-color:var(--acc)}
+  .modes{display:grid;grid-template-columns:repeat(3,1fr);gap:12px;margin:18px 0 10px}
+  .mode{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px 12px;
+    cursor:pointer;text-align:left;color:var(--ink);font:inherit;transition:.15s}
+  .mode:hover{border-color:var(--acc);transform:translateY(-1px)}
+  .mode b{display:block;font-size:14px;letter-spacing:2px;margin-bottom:5px}
+  .mode span{display:block;font-size:10.5px;line-height:1.45;color:var(--dim)}
+  .mode.play b{color:var(--ok)} .mode.rec b{color:var(--bad)} .mode.exp b{color:var(--acc)}
+  .note{font-size:10.5px;color:var(--dim);line-height:1.6;border-top:1px solid var(--line);padding-top:12px;margin-top:6px}
+  .kbd{color:var(--gold)}
+  .save-line{display:flex;align-items:center;gap:10px;font-size:12px;color:var(--dim);margin-top:4px}
+  .chip{border:1px solid var(--line);border-radius:999px;padding:4px 10px;font-size:11px;color:var(--ok)}
+  .warn{color:var(--bad)}
+  /* ---------- capture badge ---------- */
+  #badge{position:fixed;top:12px;right:12px;z-index:30;display:none;align-items:center;gap:10px;
+    background:rgba(8,10,16,.88);border:1px solid var(--line);border-radius:999px;padding:7px 12px;font-size:11.5px;letter-spacing:1px}
+  #badge .dot{width:9px;height:9px;border-radius:50%;background:var(--bad);animation:pulse 1s infinite}
+  @keyframes pulse{50%{opacity:.25}}
+  #badge button{background:var(--panel2);color:var(--ink);border:1px solid var(--line);border-radius:999px;
+    padding:4px 10px;font:inherit;font-size:11px;cursor:pointer}
+  #badge button:hover{border-color:var(--bad)}
+</style>
+</head>
+<body>
+<div id="stage"><canvas id="cv"></canvas></div>
+
+<div id="boot">
+  <div class="card">
+    <h1 class="title">ORE DELVE</h1>
+    <p class="sub">DEEP MINE · PICKAXE · TRADE · SURVIVE</p>
+
+    <div class="row">
+      <div class="col">
+        <label for="res">Resolution</label>
+        <select id="res">
+          <option value="1280x720">1280 × 720 — 720p</option>
+          <option value="1600x900" selected>1600 × 900 — native</option>
+          <option value="1920x1080">1920 × 1080 — 1080p</option>
+          <option value="2560x1440">2560 × 1440 — 1440p</option>
+          <option value="3840x2160">3840 × 2160 — 4K</option>
+        </select>
+      </div>
+      <div class="col">
+        <label for="dpr">Pixel density</label>
+        <select id="dpr">
+          <option value="auto">Auto (device)</option>
+          <option value="1" selected>1× — crisp pixels</option>
+          <option value="2">2× — supersampled</option>
+          <option value="3">3× — max</option>
+        </select>
+      </div>
+      <div class="col">
+        <label for="seed">World seed</label>
+        <input id="seed" value="1337" spellcheck="false">
+      </div>
+    </div>
+
+    <div class="save-line" id="saveLine"></div>
+
+    <div class="modes">
+      <button class="mode play" data-mode="play"><b>PLAY</b><span>Plain realtime run. Use it when you capture the screen with an external recorder.</span></button>
+      <button class="mode rec" data-mode="record"><b>RECORD</b><span>Captures the canvas itself via MediaRecorder — H.264 preferred, ~48 Mbit/s, live fps in the badge.</span></button>
+      <button class="mode exp" data-mode="export"><b>EXPORT PNG FRAMES</b><span>Deterministic frame dump through File System Access, exact 1/60 s timestep, frame_000001.png…</span></button>
+    </div>
+
+    <div class="note">
+      <span class="kbd">WASD / ARROWS</span> walk · push into rock to swing the pickaxe &nbsp;·&nbsp;
+      <span class="kbd">E</span> use lift / stairs / buildings &nbsp;·&nbsp;
+      <span class="kbd">ENTER</span> confirm &nbsp;·&nbsp;
+      <span class="kbd">ESC</span> pause &amp; save &nbsp;·&nbsp;
+      <span class="kbd">M</span> map. Progress is saved to this browser and can be continued any time.
+      <div id="fsWarn" class="warn" style="margin-top:8px"></div>
+    </div>
+  </div>
+</div>
+
+<div id="badge"><span class="dot"></span><span id="badgeText">REC</span><button id="badgeStop">STOP</button></div>
+
+<script>
+"use strict";
+/* =========================================================================
+   ORE DELVE — a single-file mining RPG. No external libraries.
+   ========================================================================= */
+
+const VW = 1600, VH = 900;          // virtual design resolution (16:9)
+const TS = 48;                      // tile size in virtual pixels
+const STEP = 1 / 60;                // fixed logic timestep
+
+/* ---------------------------------------------------------------- random */
+function mulberry32(a){
+  return function(){
+    a |= 0; a = (a + 0x6D2B79F5) | 0;
+    let t = Math.imul(a ^ (a >>> 15), 1 | a);
+    t = (t + Math.imul(t ^ (t >>> 7), 61 | t)) ^ t;
+    return ((t ^ (t >>> 14)) >>> 0) / 4294967296;
+  };
+}
+function hashStr(s){
+  let h = 2166136261;
+  for (let i = 0; i < s.length; i++){ h ^= s.charCodeAt(i); h = Math.imul(h, 16777619); }
+  return h >>> 0;
+}
+let RNG = mulberry32(1337);
+const rnd    = () => RNG();
+const rndi   = (n) => Math.floor(RNG() * n);
+const rrange = (a, b) => a + RNG() * (b - a);
+const pick   = (arr) => arr[Math.floor(RNG() * arr.length)];
+const clamp  = (v, a, b) => v < a ? a : v > b ? b : v;
+const lerp   = (a, b, t) => a + (b - a) * t;
+
+/* ------------------------------------------------------------------ tiles */
+const T_FLOOR = 0, T_DIRT = 1, T_STONE = 2, T_ORE = 3, T_BEDROCK = 4,
+      T_DOWN  = 5, T_LIFT = 6, T_LAVA  = 7, T_CRYSTAL = 8, T_WALL = 9;
+const SOLID = new Set([T_DIRT, T_STONE, T_ORE, T_BEDROCK, T_LAVA, T_CRYSTAL, T_WALL]);
+const DIGGABLE = new Set([T_DIRT, T_STONE, T_ORE, T_CRYSTAL]);
+
+/* ------------------------------------------------------------------- ores
+   power  = pickaxe level required
+   tough  = seconds of swinging at pick speed 1
+   value  = coins per unit                                                  */
+const ORES = [
+  { id:1,  name:'Rock',      color:'#7b8190', spec:'#a4abb9', value:2,    power:1, tough:0.9, minD:1,  weight:0,  yield:[1,2] },
+  { id:2,  name:'Coal',      color:'#31323a', spec:'#55565f', value:7,    power:1, tough:1.0, minD:1,  weight:34, yield:[1,3] },
+  { id:3,  name:'Copper',    color:'#c8763c', spec:'#eda468', value:15,   power:1, tough:1.2, minD:1,  weight:30, yield:[1,3] },
+  { id:4,  name:'Iron',      color:'#9aa3ad', spec:'#cdd4dc', value:30,   power:2, tough:1.6, minD:2,  weight:26, yield:[1,3] },
+  { id:5,  name:'Silver',    color:'#cdd7e4', spec:'#ffffff', value:62,   power:3, tough:2.0, minD:4,  weight:18, yield:[1,2] },
+  { id:6,  name:'Gold',      color:'#f2c14a', spec:'#ffe9a8', value:120,  power:3, tough:2.4, minD:6,  weight:14, yield:[1,2] },
+  { id:7,  name:'Emerald',   color:'#2fd08a', spec:'#a6ffd8', value:210,  power:4, tough:2.8, minD:8,  weight:9,  yield:[1,2] },
+  { id:8,  name:'Platinum',  color:'#dfeaf2', spec:'#ffffff', value:330,  power:4, tough:3.2, minD:10, weight:8,  yield:[1,2] },
+  { id:9,  name:'Ruby',      color:'#e0325c', spec:'#ff9db4', value:520,  power:5, tough:3.6, minD:13, weight:6,  yield:[1,2] },
+  { id:10, name:'Titanium',  color:'#8fb6d9', spec:'#d6ecff', value:760,  power:5, tough:4.2, minD:16, weight:6,  yield:[1,2] },
+  { id:11, name:'Diamond',   color:'#8ff0ff', spec:'#ffffff', value:1200, power:6, tough:5.0, minD:20, weight:4,  yield:[1,1] },
+  { id:12, name:'Mythril',   color:'#a98cff', spec:'#e2d6ff', value:2000, power:6, tough:5.8, minD:25, weight:3,  yield:[1,1] },
+];
+const ORE = {}; ORES.forEach(o => ORE[o.id] = o);
+
+/* --------------------------------------------------------------- upgrades */
+const UPGRADES = {
+  pick: { label:'PICKAXE', desc:'Breaks harder ore, swings faster',
+    tiers:[
+      { name:'Rusty Pickaxe',  power:1, speed:1.00, dmg:8,  cost:0     },
+      { name:'Iron Pickaxe',   power:2, speed:1.35, dmg:12, cost:180   },
+      { name:'Steel Pickaxe',  power:3, speed:1.80, dmg:18, cost:760   },
+      { name:'Carbide Drill',  power:4, speed:2.40, dmg:26, cost:2600  },
+      { name:'Plasma Cutter',  power:5, speed:3.20, dmg:38, cost:9000  },
+      { name:'Quantum Bore',   power:6, speed:4.30, dmg:55, cost:28000 },
+    ]},
+  lamp: { label:'HEAD LAMP', desc:'Wider light cone in the dark',
+    tiers:[
+      { name:'Candle Lamp',    radius:4.2, cost:0    },
+      { name:'Oil Lantern',    radius:5.4, cost:110  },
+      { name:'Carbide Lamp',   radius:6.6, cost:420  },
+      { name:'Electric Lamp',  radius:8.0, cost:1400 },
+      { name:'Xenon Beacon',   radius:9.8, cost:4800 },
+    ]},
+  bag: { label:'BACKPACK', desc:'How much ore you can carry',
+    tiers:[
+      { name:'Canvas Sack',    cap:30,  cost:0     },
+      { name:'Leather Pack',   cap:55,  cost:150   },
+      { name:'Reinforced Bag', cap:90,  cost:520   },
+      { name:'Hauler Rig',     cap:150, cost:1900  },
+      { name:'Grav Container', cap:260, cost:6500  },
+    ]},
+  boots: { label:'BOOTS', desc:'Walk faster through the tunnels',
+    tiers:[
+      { name:'Worn Boots',     speed:1.00, cost:0    },
+      { name:'Miner Boots',    speed:1.20, cost:240  },
+      { name:'Spiked Boots',   speed:1.42, cost:900  },
+      { name:'Servo Boots',    speed:1.70, cost:3200 },
+    ]},
+  helmet: { label:'HELMET', desc:'More health, less damage from rockfall',
+    tiers:[
+      { name:'Cloth Cap',      hp:100, armor:0.00, cost:0    },
+      { name:'Steel Helmet',   hp:130, armor:0.20, cost:300  },
+      { name:'Mining Helm',    hp:170, armor:0.38, cost:1100 },
+      { name:'Exo Helm',       hp:230, armor:0.55, cost:3800 },
+    ]},
+  canteen: { label:'CANTEEN', desc:'Carry more water before you dry out',
+    tiers:[
+      { name:'Tin Flask',      max:100, cost:0    },
+      { name:'Big Canteen',    max:150, cost:260  },
+      { name:'Hydro Pack',     max:220, cost:950  },
+      { name:'Recycler Pack',  max:320, cost:3400 },
+    ]},
+  rations: { label:'RATIONS', desc:'Carry more food before you starve',
+    tiers:[
+      { name:'Bread Pouch',    max:100, cost:0    },
+      { name:'Ration Box',     max:150, cost:260  },
+      { name:'Cold Locker',    max:220, cost:950  },
+      { name:'Nutri Cell',     max:320, cost:3400 },
+    ]},
+};
+const UP_KEYS = ['pick','lamp','bag','boots','helmet','canteen','rations'];
+
+/* ------------------------------------------------------------- diner menu */
+const DINER = [
+  { name:'Cup of Water',   cost:8,   water:35,  food:0,   hp:0  },
+  { name:'Flask Refill',   cost:22,  water:100, food:0,   hp:0  },
+  { name:'Bread Loaf',     cost:12,  water:0,   food:35,  hp:0  },
+  { name:'Miner Stew',     cost:34,  water:15,  food:100, hp:10 },
+  { name:'Medic Kit',      cost:60,  water:0,   food:0,   hp:80 },
+  { name:'Bunk — sleep',   cost:40,  water:100, food:100, hp:999, sleep:true },
+];
+
+/* ------------------------------------------------------------- creatures */
+const MOBS = {
+  crawler: { name:'Cave Crawler', hp:22,  dmg:7,  step:0.40, color:'#7a5cc4', minD:2  },
+  bat:     { name:'Shale Bat',    hp:14,  dmg:5,  step:0.24, color:'#5c6f8f', minD:5  },
+  golem:   { name:'Rock Golem',   hp:90,  dmg:18, step:0.62, color:'#6b7a63', minD:11 },
+  wraith:  { name:'Deep Wraith',  hp:150, dmg:26, step:0.34, color:'#c05be0', minD:20 },
+};
+
+/* =========================================================================
+   GAME STATE
+   ========================================================================= */
+const SAVE_KEY = 'oredelve.save.v1';
+
+const G = {
+  scene:'town',            // 'town' | 'mine'
+  overlay:null,            // null | 'shop' | 'trader' | 'diner' | 'lift' | 'pause' | 'dead' | 'map' | 'intro'
+  menuIndex:0,
+  time:0,
+  seedText:'1337',
+  money:60,
+  depth:0,
+  maxDepth:1,
+  hp:100,
+  food:100,
+  water:100,
+  inv:{},                  // oreId -> count
+  up:{ pick:0, lamp:0, bag:0, boots:0, helmet:0, canteen:0, rations:0 },
+  stats:{ mined:0, earned:0, deaths:0, kills:0, deepest:0, playtime:0 },
+  level:null,
+  town:null,
+  msgs:[],                 // floating hud messages
+  particles:[],
+  pops:[],                 // damage / pickup popups
+  shake:0,
+  hurtFlash:0,
+  goldFlash:0,
+  liftTarget:1,
+  saveTick:0,
+  seenIntro:false,
+};
+
+const P = {
+  x:0, y:0, px:0, py:0, dir:2, moving:false, mt:0, mdur:0.16,
+  fromX:0, fromY:0, swing:0, mining:null, mineT:0, mineNeed:0,
+  atkCd:0, hurtCd:0, walkAnim:0, bob:0,
+};
+
+const tier = (k) => UPGRADES[k].tiers[G.up[k]];
+const pickStat   = () => tier('pick');
+const maxHP      = () => tier('helmet').hp;
+const maxFood    = () => tier('rations').max;
+const maxWater   = () => tier('canteen').max;
+const bagCap     = () => tier('bag').cap;
+const carried    = () => { let n = 0; for (const k in G.inv) n += G.inv[k]; return n; };
+const invValue   = () => { let v = 0; for (const k in G.inv) v += G.inv[k] * ORE[k].value; return v; };
+
+/* ----------------------------------------------------------- save / load */
+function saveGame(){
+  const data = {
+    v:1, money:G.money, maxDepth:G.maxDepth, hp:G.hp, food:G.food, water:G.water,
+    inv:G.inv, up:G.up, stats:G.stats, seedText:G.seedText, seenIntro:G.seenIntro,
+    when:Date.now(),
+  };
+  try { localStorage.setItem(SAVE_KEY, JSON.stringify(data)); return true; }
+  catch(e){ return false; }
+}
+function readSave(){
+  try {
+    const raw = localStorage.getItem(SAVE_KEY);
+    if (!raw) return null;
+    const d = JSON.parse(raw);
+    return (d && d.v === 1) ? d : null;
+  } catch(e){ return null; }
+}
+function loadGame(d){
+  G.money = d.money | 0;
+  G.maxDepth = Math.max(1, d.maxDepth | 0);
+  G.inv = d.inv || {};
+  for (const k of UP_KEYS) G.up[k] = clamp((d.up && d.up[k]) | 0, 0, UPGRADES[k].tiers.length - 1);
+  G.stats = Object.assign(G.stats, d.stats || {});
+  G.hp    = clamp(d.hp    ?? maxHP(),   1, maxHP());
+  G.food  = clamp(d.food  ?? maxFood(), 0, maxFood());
+  G.water = clamp(d.water ?? maxWater(),0, maxWater());
+  G.seenIntro = !!d.seenIntro;
+  if (d.seedText) G.seedText = String(d.seedText);
+}
+function wipeSave(){ try { localStorage.removeItem(SAVE_KEY); } catch(e){} }
+
+/* ------------------------------------------------------------- messaging */
+function msg(text, color){
+  G.msgs.push({ text, color: color || '#e7ecf5', t:0, life:4.2 });
+  if (G.msgs.length > 6) G.msgs.shift();
+}
+function pop(x, y, text, color){
+  G.pops.push({ x, y, text, color: color || '#fff', t:0, life:1.1 });
+}
+function burst(x, y, color, n, spd){
+  for (let i = 0; i < n; i++){
+    const a = rnd() * Math.PI * 2, s = rrange(0.3, 1) * (spd || 120);
+    G.particles.push({ x, y, vx:Math.cos(a) * s, vy:Math.sin(a) * s - 40,
+      life:rrange(0.3, 0.8), t:0, color, size:rrange(2, 5) });
+  }
+}
+
+/* =========================================================================
+   WORLD GENERATION
+   ========================================================================= */
+function makeLevel(depth){
+  const w = 58, h = 40;
+  const lv = {
+    depth, w, h,
+    type: new Uint8Array(w * h),
+    ore:  new Uint8Array(w * h),
+    prog: new Float32Array(w * h),
+    seen: new Uint8Array(w * h),
+    lit:  new Uint8Array(w * h),
+    mobs: [], drops: [], lights: [],
+    upX:0, upY:0, dnX:0, dnY:0,
+  };
+  const R = mulberry32(hashStr(G.seedText + ':' + depth));
+  const idx = (x, y) => y * w + x;
+
+  /* --- cellular-automata cavern ------------------------------------- */
+  const fill = 0.47 + Math.min(depth, 20) * 0.004;
+  let map = new Uint8Array(w * h);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const border = (x < 2 || y < 2 || x >= w - 2 || y >= h - 2);
+    map[idx(x, y)] = border ? 1 : (R() < fill ? 1 : 0);
+  }
+  for (let it = 0; it < 4; it++){
+    const nx = new Uint8Array(w * h);
+    for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+      if (x < 2 || y < 2 || x >= w - 2 || y >= h - 2){ nx[idx(x, y)] = 1; continue; }
+      let n = 0;
+      for (let dy = -1; dy <= 1; dy++) for (let dx = -1; dx <= 1; dx++){
+        if (!dx && !dy) continue;
+        n += map[idx(x + dx, y + dy)];
+      }
+      nx[idx(x, y)] = (n >= 5) ? 1 : (n <= 2 ? 0 : map[idx(x, y)]);
+    }
+    map = nx;
+  }
+
+  /* --- rock hardness by depth --------------------------------------- */
+  const stoneP = clamp(0.25 + depth * 0.035, 0.25, 0.9);
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++){
+    const i = idx(x, y);
+    if (x === 0 || y === 0 || x === w - 1 || y === h - 1){ lv.type[i] = T_BEDROCK; continue; }
+    lv.type[i] = map[i] ? (R() < stoneP ? T_STONE : T_DIRT) : T_FLOOR;
+  }
+
+  /* --- entry lift and the stairs down ------------------------------- */
+  const opens = [];
+  for (let y = 3; y < h - 3; y++) for (let x = 3; x < w - 3; x++)
+    if (lv.type[idx(x, y)] === T_FLOOR) opens.push([x, y]);
+  let up, dn;
+  if (opens.length < 40){
+    up = [4, 4]; dn = [w - 5, h - 5];
+    carveRoom(lv, up[0], up[1], 3); carveRoom(lv, dn[0], dn[1], 3);
+  } else {
+    up = opens[Math.floor(R() * opens.length)];
+    let best = opens[0], bd = -1;
+    for (const o of opens){
+      const d2 = (o[0] - up[0]) ** 2 + (o[1] - up[1]) ** 2;
+      if (d2 > bd){ bd = d2; best = o; }
+    }
+    dn = best;
+  }
+  lv.upX = up[0]; lv.upY = up[1]; lv.dnX = dn[0]; lv.dnY = dn[1];
+  carveRoom(lv, lv.upX, lv.upY, 2);
+
+  /* --- guaranteed (but still buried) route between them -------------- */
+  const route = [];
+  {
+    let cx = lv.upX, cy = lv.upY, guard = 0;
+    while ((cx !== lv.dnX || cy !== lv.dnY) && guard++ < 4000){
+      route.push([cx, cy]);
+      const dx = Math.sign(lv.dnX - cx), dy = Math.sign(lv.dnY - cy);
+      if (dx && (!dy || R() < 0.5)) cx += dx; else if (dy) cy += dy; else cx += dx;
+      if (R() < 0.16){ // meander so the tunnel never looks machine made
+        const j = R() < 0.5 ? -1 : 1;
+        if (R() < 0.5) cx = clamp(cx + j, 2, w - 3); else cy = clamp(cy + j, 2, h - 3);
+      }
+    }
+    route.push([lv.dnX, lv.dnY]);
+    for (const [x, y] of route){
+      const i = idx(x, y);
+      if (lv.type[i] === T_BEDROCK) continue;
+      if (lv.type[i] !== T_FLOOR) lv.type[i] = R() < 0.55 ? T_DIRT : T_STONE;
+      lv.ore[i] = 0;
+    }
+  }
+
+  /* --- ore veins ----------------------------------------------------- */
+  const pool = ORES.filter(o => o.weight > 0 && o.minD <= depth);
+  const wsum = pool.reduce((s, o) => s + o.weight * (1 + Math.min(depth - o.minD, 14) * 0.16), 0);
+  const veins = 26 + Math.floor(depth * 1.6);
+  for (let v = 0; v < veins; v++){
+    let r = R() * wsum, chosen = pool[0];
+    for (const o of pool){
+      r -= o.weight * (1 + Math.min(depth - o.minD, 14) * 0.16);
+      if (r <= 0){ chosen = o; break; }
+    }
+    let x = 2 + Math.floor(R() * (w - 4)), y = 2 + Math.floor(R() * (h - 4));
+    const size = 3 + Math.floor(R() * (chosen.value > 300 ? 3 : 6));
+    for (let s = 0; s < size; s++){
+      const i = idx(x, y);
+      if (lv.type[i] === T_DIRT || lv.type[i] === T_STONE){
+        lv.type[i] = T_ORE; lv.ore[i] = chosen.id;
+      }
+      x = clamp(x + (R() < 0.5 ? -1 : 1) * (R() < 0.7 ? 1 : 0), 2, w - 3);
+      y = clamp(y + (R() < 0.5 ? -1 : 1) * (R() < 0.7 ? 1 : 0), 2, h - 3);
+    }
+  }
+
+  /* --- glowing crystals + lava pockets -------------------------------- */
+  const crystals = 3 + Math.floor(depth * 0.4);
+  for (let c = 0; c < crystals; c++){
+    const x = 2 + Math.floor(R() * (w - 4)), y = 2 + Math.floor(R() * (h - 4)), i = idx(x, y);
+    if (lv.type[i] === T_DIRT || lv.type[i] === T_STONE){
+      lv.type[i] = T_CRYSTAL; lv.lights.push({ x, y, r:3.2, pw:0.55, col:'#7fd8ff' });
+    }
+  }
+  if (depth >= 9){
+    const pools = Math.floor((depth - 6) * 0.5);
+    for (let p = 0; p < pools; p++){
+      let x = 3 + Math.floor(R() * (w - 6)), y = 3 + Math.floor(R() * (h - 6));
+      for (let s = 0; s < 5 + Math.floor(R() * 7); s++){
+        const i = idx(x, y);
+        const near = (Math.abs(x - lv.upX) < 4 && Math.abs(y - lv.upY) < 4) ||
+                     (Math.abs(x - lv.dnX) < 3 && Math.abs(y - lv.dnY) < 3);
+        if (!near && lv.type[i] !== T_BEDROCK && !routeHas(route, x, y)){
+          lv.type[i] = T_LAVA; lv.ore[i] = 0;
+          if (s % 3 === 0) lv.lights.push({ x, y, r:2.6, pw:0.45, col:'#ff9a4d' });
+        }
+        x = clamp(x + (R() < 0.5 ? -1 : 1), 2, w - 3);
+        y = clamp(y + (R() < 0.5 ? -1 : 1), 2, h - 3);
+      }
+    }
+  }
+
+  /* --- gas pockets (hidden until you break the rock) ------------------ */
+  lv.gas = new Uint8Array(w * h);
+  if (depth >= 3){
+    const n = Math.floor(depth * 1.2);
+    for (let i = 0; i < n; i++){
+      const x = 2 + Math.floor(R() * (w - 4)), y = 2 + Math.floor(R() * (h - 4)), k = idx(x, y);
+      if (SOLID.has(lv.type[k]) && lv.type[k] !== T_BEDROCK) lv.gas[k] = 1;
+    }
+  }
+
+  /* --- stairs / lift tiles -------------------------------------------- */
+  lv.type[idx(lv.upX, lv.upY)] = T_LIFT;
+  lv.type[idx(lv.dnX, lv.dnY)] = T_DOWN;
+  lv.ore[idx(lv.dnX, lv.dnY)] = 0;
+  lv.lights.push({ x:lv.upX, y:lv.upY, r:5, pw:0.9, col:'#ffd27f' });
+  lv.lights.push({ x:lv.dnX, y:lv.dnY, r:4, pw:0.8, col:'#9fe8ff' });
+
+  /* --- monsters -------------------------------------------------------- */
+  const kinds = Object.keys(MOBS).filter(k => MOBS[k].minD <= depth);
+  if (kinds.length){
+    const count = Math.min(3 + Math.floor(depth * 0.55), 14);
+    for (let i = 0; i < count; i++){
+      const kind = kinds[Math.floor(R() * kinds.length)];
+      let tries = 0, x, y;
+      do {
+        x = 2 + Math.floor(R() * (w - 4)); y = 2 + Math.floor(R() * (h - 4));
+        tries++;
+      } while (tries < 60 && (lv.type[idx(x, y)] !== T_FLOOR ||
+               (Math.abs(x - lv.upX) < 7 && Math.abs(y - lv.upY) < 7)));
+      if (tries >= 60) continue;
+      const m = MOBS[kind];
+      const scale = 1 + Math.max(0, depth - m.minD) * 0.06;
+      lv.mobs.push({ kind, x, y, px:x * TS, py:y * TS, hp:Math.round(m.hp * scale),
+        maxhp:Math.round(m.hp * scale), dmg:Math.round(m.dmg * scale), t:R(), hurt:0, dead:false });
+    }
+  }
+  return lv;
+}
+function routeHas(route, x, y){
+  for (let i = 0; i < route.length; i++) if (route[i][0] === x && route[i][1] === y) return true;
+  return false;
+}
+function carveRoom(lv, cx, cy, r){
+  for (let y = cy - r; y <= cy + r; y++) for (let x = cx - r; x <= cx + r; x++){
+    if (x < 1 || y < 1 || x >= lv.w - 1 || y >= lv.h - 1) continue;
+    if ((x - cx) ** 2 + (y - cy) ** 2 <= r * r){
+      lv.type[y * lv.w + x] = T_FLOOR; lv.ore[y * lv.w + x] = 0;
+    }
+  }
+}
+
+/* =========================================================================
+   THE TOWN (depth 0) — trader, shop, diner, mine lift
+   ========================================================================= */
+function makeTown(){
+  const w = 34, h = 18;
+  const tw = {
+    depth:0, w, h, town:true,
+    type:new Uint8Array(w * h), ore:new Uint8Array(w * h), prog:new Float32Array(w * h),
+    seen:new Uint8Array(w * h).fill(1), gas:new Uint8Array(w * h),
+    mobs:[], drops:[], lights:[], props:[], doors:[],
+  };
+  const idx = (x, y) => y * w + x;
+  for (let y = 0; y < h; y++) for (let x = 0; x < w; x++)
+    tw.type[idx(x, y)] = (x === 0 || y === 0 || x === w - 1 || y === h - 1) ? T_BEDROCK : T_FLOOR;
+
+  const build = (x, y, bw, bh, kind, label, color, sign) => {
+    for (let j = y; j < y + bh; j++) for (let i = x; i < x + bw; i++) tw.type[idx(i, j)] = T_WALL;
+    const dx = x + (bw >> 1), dy = y + bh;          // door tile sits in front of the house
+    tw.type[idx(dx, dy)] = T_FLOOR;
+    tw.props.push({ x, y, w:bw, h:bh, kind, label, color, sign, dx, dy });
+    tw.doors.push({ x:dx, y:dy, kind, label });
+    tw.lights.push({ x:dx, y:dy - 0.4, r:4.2, col:color });
+  };
+
+  build(3,  3, 6, 4, 'trader', 'ORE TRADER',  '#ffc14d', '$');
+  build(12, 3, 6, 4, 'shop',   'GEAR SHOP',   '#5fd0ff', '⚒');
+  build(21, 3, 6, 4, 'diner',  'DINER & BUNK','#6ee7a0', '☕');
+  build(14, 11, 5, 4, 'lift',  'MINE LIFT',   '#ff9a4d', '▼');
+
+  tw.lights.push({ x:w / 2, y:h / 2, r:12, col:'#9fb4d8' });
+  return tw;
+}
+
+function currentLevel(){ return G.scene === 'town' ? G.town : G.level; }
+function tileAt(lv, x, y){
+  if (x < 0 || y < 0 || x >= lv.w || y >= lv.h) return T_BEDROCK;
+  return lv.type[y * lv.w + x];
+}
+function isSolid(lv, x, y){ return SOLID.has(tileAt(lv, x, y)); }
+function mobAt(lv, x, y){
+  for (const m of lv.mobs) if (!m.dead && m.x === x && m.y === y) return m;
+  return null;
+}
+function placePlayer(x, y){
+  P.x = x; P.y = y; P.px = x * TS; P.py = y * TS;
+  P.moving = false; P.mining = null; P.mt = 0; P.mineT = 0;
+}
+
+function goTown(){
+  G.scene = 'town'; G.depth = 0; G.level = null;
+  if (!G.town) G.town = makeTown();
+  const lift = G.town.doors.find(d => d.kind === 'lift');
+  placePlayer(lift.x, lift.y + 1);
+  saveGame();
+}
+function goDepth(d){
+  G.depth = d;
+  G.maxDepth = Math.max(G.maxDepth, d);
+  G.stats.deepest = Math.max(G.stats.deepest, d);
+  G.scene = 'mine';
+  G.level = makeLevel(d);
+  placePlayer(G.level.upX, G.level.upY);
+  revealAround(true);
+  msg('Depth ' + d + ' — ' + depthName(d), '#9fe8ff');
+  saveGame();
+}
+function depthName(d){
+  if (d <= 2)  return 'topsoil seams';
+  if (d <= 5)  return 'copper galleries';
+  if (d <= 9)  return 'iron deeps';
+  if (d <= 13) return 'silver hollows';
+  if (d <= 17) return 'the gold vault';
+  if (d <= 22) return 'crystal abyss';
+  if (d <= 28) return 'magma roots';
+  return 'the unnamed dark';
+}
+
+/* =========================================================================
+   INPUT
+   ========================================================================= */
+const keys = {};
+const pressed = [];
+const mouse = { x:0, y:0, click:false, down:false };
+
+addEventListener('keydown', e => {
+  if (['ArrowUp','ArrowDown','ArrowLeft','ArrowRight',' '].includes(e.key)) e.preventDefault();
+  if (!keys[e.code]) pressed.push(e.code);
+  keys[e.code] = true;
+});
+addEventListener('keyup',   e => { keys[e.code] = false; });
+addEventListener('blur',    () => { for (const k in keys) keys[k] = false; });
+
+function took(code){
+  const i = pressed.indexOf(code);
+  if (i >= 0){ pressed.splice(i, 1); return true; }
+  return false;
+}
+function anyTook(...codes){ let hit = false; for (const c of codes) if (took(c)) hit = true; return hit; }
+
+/* =========================================================================
+   PLAYER UPDATE
+   ========================================================================= */
+function dirVec(d){ return d === 0 ? [0,-1] : d === 1 ? [1,0] : d === 2 ? [0,1] : [-1,0]; }
+
+function updatePlayer(dt){
+  const lv = currentLevel();
+  P.atkCd  = Math.max(0, P.atkCd - dt);
+  P.hurtCd = Math.max(0, P.hurtCd - dt);
+  P.swing  = Math.max(0, P.swing - dt);
+
+  /* smooth tile-to-tile stepping keeps collisions honest */
+  if (P.moving){
+    P.mt += dt;
+    const t = clamp(P.mt / P.mdur, 0, 1);
+    const e = t * t * (3 - 2 * t);
+    P.px = lerp(P.fromX * TS, P.x * TS, e);
+    P.py = lerp(P.fromY * TS, P.y * TS, e);
+    P.walkAnim += dt * 9;
+    if (t >= 1){ P.moving = false; P.px = P.x * TS; P.py = P.y * TS; onStep(); }
+    return;
+  }
+
+  let dx = 0, dy = 0;
+  if (keys.KeyW || keys.ArrowUp)    dy = -1;
+  else if (keys.KeyS || keys.ArrowDown)  dy = 1;
+  else if (keys.KeyA || keys.ArrowLeft)  dx = -1;
+  else if (keys.KeyD || keys.ArrowRight) dx = 1;
+
+  const holdMine = keys.Space;
+  if (!dx && !dy && !holdMine){ P.mining = null; P.mineT = 0; return; }
+
+  if (dx || dy){
+    P.dir = dy < 0 ? 0 : dx > 0 ? 1 : dy > 0 ? 2 : 3;
+  }
+  const [fx, fy] = dirVec(P.dir);
+  const tx = P.x + (dx || dy ? dx : fx), ty = P.y + (dx || dy ? dy : fy);
+  const tgt = tileAt(lv, tx, ty);
+
+  /* bump-attack */
+  const m = mobAt(lv, tx, ty);
+  if (m){
+    P.mining = null;
+    if (P.atkCd <= 0){
+      P.atkCd = 0.34; P.swing = 0.22;
+      const dmg = pickStat().dmg + rndi(4);
+      m.hp -= dmg; m.hurt = 0.18;
+      pop(m.px + TS / 2, m.py, '-' + dmg, '#ff9d9d');
+      burst(m.px + TS / 2, m.py + TS / 2, MOBS[m.kind].color, 6, 110);
+      sfx('hit');
+      if (m.hp <= 0){
+        m.dead = true; G.stats.kills++;
+        const coin = 8 + rndi(6 + G.depth * 3);
+        G.money += coin; pop(m.px + TS / 2, m.py - 8, '+$' + coin, '#ffc14d');
+        burst(m.px + TS / 2, m.py + TS / 2, '#ffc14d', 14, 150);
+        msg(MOBS[m.kind].name + ' destroyed  +$' + coin, '#6ee7a0');
+      }
+    }
+    return;
+  }
+
+  if (SOLID.has(tgt)){
+    if (tgt === T_LAVA || tgt === T_BEDROCK || tgt === T_WALL){
+      P.mining = null;
+      if (tgt === T_LAVA && P.hurtCd <= 0) { /* lava only burns on contact attempts */ }
+      return;
+    }
+    mineTile(lv, tx, ty, dt);
+    return;
+  }
+
+  P.mining = null; P.mineT = 0;
+  if (!dx && !dy) return;
+  /* walk */
+  P.fromX = P.x; P.fromY = P.y;
+  P.x = tx; P.y = ty;
+  P.moving = true; P.mt = 0;
+  P.mdur = 0.17 / tier('boots').speed;
+}
+
+function onStep(){
+  const lv = currentLevel();
+  const t = tileAt(lv, P.x, P.y);
+  if (G.scene === 'mine'){
+    drainStats(0.9);
+    revealAround();
+    for (let i = lv.drops.length - 1; i >= 0; i--){
+      const d = lv.drops[i];
+      if (d.x === P.x && d.y === P.y){ takeDrop(d); lv.drops.splice(i, 1); }
+    }
+    if (t === T_DOWN) msg('Stairs down — press E', '#9fe8ff');
+    if (t === T_LIFT) msg('Lift to town — press E', '#ffd27f');
+  } else {
+    const door = lv.doors && lv.doors.find(d => d.x === P.x && d.y === P.y);
+    if (door) msg(door.label + ' — press E', '#e7ecf5');
+  }
+}
+
+/* ------------------------------------------------------------- mining ---- */
+function mineTile(lv, x, y, dt){
+  const i = y * lv.w + x;
+  const t = lv.type[i];
+  const oid = t === T_ORE ? lv.ore[i] : (t === T_CRYSTAL ? 0 : 0);
+  const o = oid ? ORE[oid] : null;
+  const need = o ? o.tough : (t === T_DIRT ? 0.5 : t === T_CRYSTAL ? 1.4 : 1.0);
+  const reqPower = o ? o.power : 1;
+
+  if (reqPower > pickStat().power){
+    P.mining = null;
+    if (G.time - (P.lastHard || -9) > 1.2){
+      P.lastHard = G.time;
+      msg('The ' + o.name + ' is too hard for a ' + pickStat().name, '#ff6b6b');
+      sfx('deny');
+    }
+    return;
+  }
+  if (!P.mining || P.mining.x !== x || P.mining.y !== y){
+    P.mining = { x, y };
+    P.mineT = lv.prog[i] * need;      // cracks you left behind still count
+    P.mineNeed = need;
+  }
+  P.mineT += dt * pickStat().speed;
+  lv.prog[i] = clamp(P.mineT / need, 0, 1);
+
+  /* pickaxe swing rhythm */
+  P.swingTimer = (P.swingTimer || 0) + dt * pickStat().speed;
+  if (P.swingTimer > 0.34){
+    P.swingTimer = 0; P.swing = 0.2; sfx('dig');
+    const cx = x * TS + TS / 2, cy = y * TS + TS / 2;
+    burst(cx, cy, o ? o.color : (t === T_DIRT ? '#6b4f32' : '#7b8190'), 4, 70);
+  }
+
+  if (P.mineT >= need){
+    breakTile(lv, x, y);
+    P.mining = null; P.mineT = 0;
+  }
+}
+
+function breakTile(lv, x, y){
+  const i = y * lv.w + x;
+  const t = lv.type[i], oid = lv.ore[i];
+  lv.type[i] = T_FLOOR; lv.ore[i] = 0; lv.prog[i] = 0;
+  G.stats.mined++;
+  drainStats(1.6);
+  const cx = x * TS + TS / 2, cy = y * TS + TS / 2;
+  G.shake = Math.min(G.shake + 2.5, 9);
+  sfx('break');
+
+  if (t === T_ORE && oid){
+    const o = ORE[oid];
+    const amt = o.yield[0] + rndi(o.yield[1] - o.yield[0] + 1);
+    addOre(oid, amt, cx, cy);
+    burst(cx, cy, o.color, 16, 150);
+  } else if (t === T_CRYSTAL){
+    addOre(11, 1, cx, cy);                 // crystals carry a diamond shard
+    burst(cx, cy, '#8ff0ff', 20, 180);
+  } else {
+    if (rnd() < 0.45) addOre(1, 1, cx, cy);          // plain rock
+    burst(cx, cy, t === T_DIRT ? '#6b4f32' : '#7b8190', 10, 110);
+  }
+
+  /* hazards hidden in the rock */
+  if (lv.gas && lv.gas[i]){
+    lv.gas[i] = 0;
+    const dmg = Math.round((10 + G.depth * 1.5) * (1 - tier('helmet').armor));
+    hurt(dmg, 'Gas pocket!');
+    burst(cx, cy, '#a6ff9d', 26, 200);
+    G.shake = 9;
+  } else if (G.depth >= 4 && rnd() < 0.045 && tileAt(lv, x, y - 1) !== T_FLOOR){
+    const dmg = Math.round((8 + G.depth) * (1 - tier('helmet').armor));
+    hurt(dmg, 'Rockfall!');
+    burst(cx, cy - TS / 2, '#9aa3ad', 18, 180);
+    G.shake = 8;
+  }
+  revealAround();
+}
+
+function addOre(oid, amt, cx, cy){
+  const space = bagCap() - carried();
+  if (space <= 0){
+    if (G.time - (P.lastFull || -9) > 2){
+      P.lastFull = G.time;
+      msg('Backpack is full — ride the lift up and sell', '#ff6b6b');
+    }
+    return;
+  }
+  const take = Math.min(space, amt);
+  G.inv[oid] = (G.inv[oid] || 0) + take;
+  const o = ORE[oid];
+  pop(cx, cy - 6, '+' + take + ' ' + o.name, o.spec);
+  G.goldFlash = Math.min(1, G.goldFlash + (o.value > 100 ? 0.8 : 0.25));
+  sfx(o.value > 100 ? 'gem' : 'pick');
+  if (take < amt) msg('Backpack is full', '#ff6b6b');
+}
+function takeDrop(d){
+  if (d.money){ G.money += d.money; pop(P.px + TS / 2, P.py, '+$' + d.money, '#ffc14d'); }
+  if (d.oid)  addOre(d.oid, d.amt, P.px + TS / 2, P.py);
+}
+
+/* ------------------------------------------------------- vitals / damage - */
+function drainStats(mult){
+  const m = mult || 1;
+  G.food  = clamp(G.food  - 0.04 * m, 0, maxFood());
+  G.water = clamp(G.water - 0.06 * m, 0, maxWater());
+}
+function hurt(dmg, why){
+  if (dmg <= 0) return;
+  G.hp -= dmg;
+  G.hurtFlash = 1;
+  P.hurtCd = 0.6;
+  pop(P.px + TS / 2, P.py - 10, '-' + dmg, '#ff6b6b');
+  if (why) msg(why + '  -' + dmg + ' HP', '#ff6b6b');
+  sfx('hurt');
+  if (G.hp <= 0) die();
+}
+function die(){
+  G.hp = 0;
+  G.stats.deaths++;
+  G.overlay = 'dead';
+  G.menuIndex = 0;
+  sfx('die');
+}
+
+/* =========================================================================
+   WORLD UPDATE
+   ========================================================================= */
+function revealAround(force){
+  const lv = currentLevel();
+  if (!lv) return;
+  const r = Math.ceil(tier('lamp').radius) + 1;
+  for (let y = P.y - r; y <= P.y + r; y++) for (let x = P.x - r; x <= P.x + r; x++){
+    if (x < 0 || y < 0 || x >= lv.w || y >= lv.h) continue;
+    const d = Math.hypot(x - P.x, y - P.y);
+    if (d <= r) lv.seen[y * lv.w + x] = 1;
+  }
+  if (force) for (const l of lv.lights){
+    if (Math.hypot(l.x - P.x, l.y - P.y) > 9) continue;
+    for (let y = l.y - l.r; y <= l.y + l.r; y++) for (let x = l.x - l.r; x <= l.x + l.r; x++){
+      const xi = Math.round(x), yi = Math.round(y);
+      if (xi < 0 || yi < 0 || xi >= lv.w || yi >= lv.h) continue;
+      if (Math.hypot(xi - l.x, yi - l.y) <= l.r) lv.seen[yi * lv.w + xi] = 1;
+    }
+  }
+}
+
+function updateMobs(dt){
+  const lv = currentLevel();
+  if (!lv) return;
+  for (let i = lv.mobs.length - 1; i >= 0; i--){
+    const m = lv.mobs[i];
+    if (m.dead){ lv.mobs.splice(i, 1); continue; }
+    const def = MOBS[m.kind];
+    m.hurt = Math.max(0, m.hurt - dt);
+    m.t -= dt;
+    m.px = lerp(m.px, m.x * TS, clamp(dt * 12, 0, 1));
+    m.py = lerp(m.py, m.y * TS, clamp(dt * 12, 0, 1));
+    const dist = Math.abs(m.x - P.x) + Math.abs(m.y - P.y);
+    if (dist > 14) continue;
+
+    if (dist === 1 && m.t <= 0){
+      m.t = 1.05;
+      hurt(Math.round(m.dmg * (1 - tier('helmet').armor * 0.5)), def.name + ' strikes');
+      G.shake = 6;
+      continue;
+    }
+    if (m.t > 0) continue;
+    m.t = def.step;
+
+    let sx = 0, sy = 0;
+    if (dist <= 9){
+      if (Math.abs(m.x - P.x) > Math.abs(m.y - P.y)) sx = Math.sign(P.x - m.x);
+      else sy = Math.sign(P.y - m.y);
+    } else {
+      if (rnd() < 0.5) sx = rnd() < 0.5 ? -1 : 1; else sy = rnd() < 0.5 ? -1 : 1;
+    }
+    const nx = m.x + sx, ny = m.y + sy;
+    if (nx === P.x && ny === P.y) continue;
+    if (!isSolid(lv, nx, ny) && !mobAt(lv, nx, ny)){ m.x = nx; m.y = ny; }
+    else if (dist <= 9){           // try the other axis when blocked
+      const ax = Math.sign(P.x - m.x), ay = Math.sign(P.y - m.y);
+      const bx = sx ? m.x : m.x + ax, by = sx ? m.y + ay : m.y;
+      if (!isSolid(lv, bx, by) && !mobAt(lv, bx, by) && !(bx === P.x && by === P.y)){ m.x = bx; m.y = by; }
+    }
+  }
+}
+
+function updateWorld(dt){
+  G.time += dt;
+  G.stats.playtime += dt;
+  G.shake      = Math.max(0, G.shake - dt * 22);
+  G.hurtFlash  = Math.max(0, G.hurtFlash - dt * 1.8);
+  G.goldFlash  = Math.max(0, G.goldFlash - dt * 1.6);
+
+  for (let i = G.particles.length - 1; i >= 0; i--){
+    const p = G.particles[i];
+    p.t += dt;
+    if (p.t >= p.life){ G.particles.splice(i, 1); continue; }
+    p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 420 * dt; p.vx *= 0.97;
+  }
+  for (let i = G.pops.length - 1; i >= 0; i--){
+    const p = G.pops[i]; p.t += dt; p.y -= 26 * dt;
+    if (p.t >= p.life) G.pops.splice(i, 1);
+  }
+  for (let i = G.msgs.length - 1; i >= 0; i--){
+    const m = G.msgs[i]; m.t += dt;
+    if (m.t >= m.life) G.msgs.splice(i, 1);
+  }
+
+  if (G.scene === 'mine'){
+    G.food  = clamp(G.food  - 0.30 * dt, 0, maxFood());
+    G.water = clamp(G.water - 0.45 * dt, 0, maxWater());
+    warnVitals();
+  } else {
+    G.food  = clamp(G.food  - 0.10 * dt, 0, maxFood());
+    G.water = clamp(G.water - 0.14 * dt, 0, maxWater());
+    G.hp    = clamp(G.hp    + 1.2  * dt, 0, maxHP());
+  }
+  /* starving / dehydrated */
+  if (G.food <= 0 || G.water <= 0){
+    G.starveT = (G.starveT || 0) + dt;
+    if (G.starveT >= 1){
+      G.starveT = 0;
+      const why = G.water <= 0 ? 'Dehydrated' : 'Starving';
+      hurt(G.water <= 0 ? 4 : 3, why);
+    }
+  } else G.starveT = 0;
+
+  /* stepping onto molten rock hurts */
+  const lv = currentLevel();
+  if (lv && tileAt(lv, P.x, P.y) === T_LAVA && P.hurtCd <= 0) hurt(20, 'Molten rock!');
+
+  G.saveTick += dt;
+  if (G.saveTick > 25){ G.saveTick = 0; saveGame(); }
+}
+
+function warnVitals(){
+  const w = G.water / maxWater(), f = G.food / maxFood();
+  G.warned = G.warned || {};
+  const shout = (key, text) => {
+    if (G.warned[key]) return;
+    G.warned[key] = true;
+    msg(text, '#ff6b6b');
+    sfx('deny');
+  };
+  if (w < 0.25) shout('w25', 'Water running low — head for the lift'); else G.warned.w25 = false;
+  if (w < 0.10) shout('w10', 'Almost out of water!');                  else G.warned.w10 = false;
+  if (f < 0.25) shout('f25', 'Food running low — head for the lift');  else G.warned.f25 = false;
+  if (f < 0.10) shout('f10', 'Almost out of food!');                   else G.warned.f10 = false;
+  if (carried() >= bagCap()) shout('bag', 'Backpack full — ride the lift up and sell');
+  else G.warned.bag = false;
+}
+
+/* =========================================================================
+   INTERACTION (E)
+   ========================================================================= */
+function interact(){
+  const lv = currentLevel();
+  if (G.scene === 'town'){
+    const door = lv.doors.find(d => d.x === P.x && d.y === P.y);
+    if (!door){ msg('Stand in a doorway, then press E', '#8d97ae'); return; }
+    G.menuIndex = 0; G.showMap = false;
+    if (door.kind === 'lift'){ G.overlay = 'lift'; G.menuIndex = G.maxDepth - 1; }
+    else G.overlay = door.kind;
+    sfx('ui');
+    return;
+  }
+  const t = tileAt(lv, P.x, P.y);
+  if (t === T_LIFT){ msg('Riding the lift up…', '#ffd27f'); sfx('lift'); goTown(); }
+  else if (t === T_DOWN){
+    sfx('lift');
+    goDepth(G.depth + 1);
+  } else msg('Nothing to use here', '#8d97ae');
+}
+
+/* =========================================================================
+   SHOPS
+   ========================================================================= */
+function sellAll(){
+  const v = invValue();
+  if (v <= 0){ msg('Nothing to sell', '#8d97ae'); sfx('deny'); return; }
+  let units = 0;
+  for (const k in G.inv) units += G.inv[k];
+  G.money += v; G.stats.earned += v; G.inv = {};
+  msg('Sold ' + units + ' units for $' + v, '#ffc14d');
+  G.goldFlash = 1; sfx('coin'); saveGame();
+}
+function sellOne(oid){
+  const n = G.inv[oid] | 0;
+  if (!n){ sfx('deny'); return; }
+  const v = n * ORE[oid].value;
+  G.money += v; G.stats.earned += v; delete G.inv[oid];
+  msg('Sold ' + n + ' ' + ORE[oid].name + ' for $' + v, '#ffc14d');
+  sfx('coin'); saveGame();
+}
+function buyUpgrade(key){
+  const u = UPGRADES[key], lvl = G.up[key];
+  if (lvl >= u.tiers.length - 1){ msg(u.label + ' is already maxed', '#8d97ae'); sfx('deny'); return; }
+  const next = u.tiers[lvl + 1];
+  if (G.money < next.cost){ msg('Not enough money — need $' + next.cost, '#ff6b6b'); sfx('deny'); return; }
+  G.money -= next.cost;
+  G.up[key] = lvl + 1;
+  if (key === 'helmet')  G.hp = maxHP();
+  msg('Bought ' + next.name, '#6ee7a0');
+  sfx('buy'); saveGame();
+}
+function buyFood(item){
+  if (G.money < item.cost){ msg('Not enough money', '#ff6b6b'); sfx('deny'); return; }
+  G.money -= item.cost;
+  G.food  = clamp(G.food  + item.food,  0, maxFood());
+  G.water = clamp(G.water + item.water, 0, maxWater());
+  G.hp    = clamp(G.hp    + item.hp,    0, maxHP());
+  msg(item.sleep ? 'You sleep through the shift — fully rested' : item.name + ' — consumed', '#6ee7a0');
+  sfx(item.sleep ? 'lift' : 'buy');
+  saveGame();
+}
+function respawn(){
+  const lost = carried();
+  G.inv = {};
+  G.hp = maxHP();
+  G.food = Math.max(G.food, 40);
+  G.water = Math.max(G.water, 40);
+  G.overlay = null;
+  goTown();
+  msg('The guild dragged you out. They kept your ' + lost + ' units of ore.', '#ff6b6b');
+}
+
+/* =========================================================================
+   MENUS
+   ========================================================================= */
+function buildMenu(){
+  const rows = [];
+  switch (G.overlay){
+    case 'trader': {
+      const ids = Object.keys(G.inv).filter(k => G.inv[k] > 0)
+        .sort((a, b) => ORE[b].value - ORE[a].value);
+      for (const id of ids){
+        const o = ORE[id], n = G.inv[id];
+        rows.push({ label:o.name + ' ×' + n, right:'$' + (n * o.value), color:o.spec,
+                    action:() => sellOne(id) });
+      }
+      if (!ids.length) rows.push({ label:'— your backpack is empty —', dim:true, noop:true });
+      else rows.push({ label:'SELL EVERYTHING', right:'$' + invValue(), color:'#ffc14d', action:sellAll });
+      return { title:'ORE TRADER', sub:'Raw ore in, coins out. Prices are fixed by the guild.', rows,
+               foot:'↑↓ choose · ENTER sell · ESC leave' };
+    }
+    case 'shop': {
+      for (const k of UP_KEYS){
+        const u = UPGRADES[k], lvl = G.up[k], cur = u.tiers[lvl], nxt = u.tiers[lvl + 1];
+        const stars = '▰'.repeat(lvl + 1) + '▱'.repeat(u.tiers.length - lvl - 1);
+        if (!nxt) rows.push({ label:u.label + '  ' + stars, right:'MAX', dim:true, sub:cur.name, noop:true });
+        else rows.push({ label:u.label + '  ' + stars, right:'$' + nxt.cost,
+                         sub:cur.name + '  →  ' + nxt.name + '   (' + u.desc + ')',
+                         color:G.money >= nxt.cost ? '#6ee7a0' : '#ff6b6b',
+                         action:() => buyUpgrade(k) });
+      }
+      return { title:'GEAR SHOP', sub:'Better tools mean harder rock and deeper shafts.', rows,
+               foot:'↑↓ choose · ENTER buy · ESC leave' };
+    }
+    case 'diner': {
+      for (const it of DINER){
+        rows.push({ label:it.name,
+          right:'$' + it.cost,
+          sub:[it.food ? '+' + it.food + ' food' : '', it.water ? '+' + it.water + ' water' : '',
+               it.hp ? (it.sleep ? 'full heal' : '+' + it.hp + ' hp') : ''].filter(Boolean).join('  ·  '),
+          color:G.money >= it.cost ? '#6ee7a0' : '#ff6b6b',
+          action:() => buyFood(it) });
+      }
+      return { title:'DINER & BUNK', sub:'No miner ever came back up on an empty flask.', rows,
+               foot:'↑↓ choose · ENTER buy · ESC leave' };
+    }
+    case 'lift': {
+      for (let d = 1; d <= G.maxDepth; d++){
+        rows.push({ label:'Depth ' + String(d).padStart(2, '0') + '  —  ' + depthName(d),
+                    right:d === G.maxDepth ? 'DEEPEST' : '', color:'#9fe8ff',
+                    action:() => { G.overlay = null; goDepth(d); } });
+      }
+      return { title:'MINE LIFT', sub:'The cage only stops at levels you have already opened.',
+               rows, startAtEnd:true, foot:'↑↓ pick a level · ENTER descend · ESC leave' };
+    }
+    case 'pause': {
+      rows.push({ label:'RESUME', color:'#6ee7a0', action:() => { G.overlay = null; } });
+      rows.push({ label:'SAVE PROGRESS', color:'#5fd0ff',
+                  action:() => msg(saveGame() ? 'Progress saved' : 'Could not save (storage blocked)',
+                                   '#6ee7a0') });
+      rows.push({ label:'ABANDON RUN — back to town', sub:'Keeps your ore, ends the shift',
+                  action:() => { G.overlay = null; if (G.scene === 'mine') goTown(); } });
+      rows.push({ label:'NEW GAME (erases the save)', color:'#ff6b6b',
+                  action:() => { wipeSave(); freshStart(); G.overlay = null; } });
+      return { title:'PAUSED', sub:'Shift ' + fmtTime(G.stats.playtime) + '  ·  ' +
+                     G.stats.mined + ' tiles broken  ·  $' + G.stats.earned + ' earned',
+               rows, foot:'↑↓ choose · ENTER confirm · ESC resume' };
+    }
+    case 'dead': {
+      rows.push({ label:'WAKE UP IN TOWN', color:'#6ee7a0', action:respawn });
+      return { title:'YOU BLACKED OUT', sub:'Depth ' + G.depth + ' — ' + depthName(G.depth) +
+               '. The ore you carried is gone.', rows, foot:'ENTER continue' };
+    }
+    case 'intro': {
+      rows.push({ label:'START DIGGING', color:'#6ee7a0', action:() => { G.overlay = null; G.seenIntro = true; saveGame(); } });
+      return { title:'ORE DELVE',
+        sub:'Walk into rock to swing your pickaxe. Haul ore up the lift, sell it, eat, drink, ' +
+            'buy better gear, go deeper. Food and water burn faster underground.',
+        rows, foot:'ENTER begin' };
+    }
+  }
+  return null;
+}
+
+function updateMenu(){
+  const menu = buildMenu();
+  if (!menu) return;
+  const usable = menu.rows.filter(r => !r.noop).length;
+  if (took('Escape')){
+    if (G.overlay !== 'dead'){ G.overlay = null; sfx('ui'); saveGame(); }
+    return;
+  }
+  if (anyTook('ArrowUp', 'KeyW'))   { G.menuIndex--; sfx('ui'); }
+  if (anyTook('ArrowDown', 'KeyS')) { G.menuIndex++; sfx('ui'); }
+  G.menuIndex = ((G.menuIndex % menu.rows.length) + menu.rows.length) % menu.rows.length;
+  let guard = 0;
+  while (menu.rows[G.menuIndex] && menu.rows[G.menuIndex].noop && guard++ < menu.rows.length)
+    G.menuIndex = (G.menuIndex + 1) % menu.rows.length;
+
+  let fire = anyTook('Enter', 'NumpadEnter', 'Space', 'KeyE');
+  if (mouse.click && G.menuRects){
+    for (const r of G.menuRects){
+      if (mouse.x >= r.x && mouse.x <= r.x + r.w && mouse.y >= r.y && mouse.y <= r.y + r.h){
+        G.menuIndex = r.i; fire = true; break;
+      }
+    }
+  }
+  if (fire){
+    const row = menu.rows[G.menuIndex];
+    if (row && row.action) row.action();
+  }
+  if (usable === 0 && anyTook('Enter')) G.overlay = null;
+}
+
+function fmtTime(s){
+  const m = Math.floor(s / 60), ss = Math.floor(s % 60);
+  return m + 'm ' + String(ss).padStart(2, '0') + 's';
+}
+
+/* =========================================================================
+   MAIN STEP
+   ========================================================================= */
+function step(dt){
+  if (G.overlay){
+    updateMenu();
+    /* world keeps breathing behind the panel, but nothing dangerous happens */
+    G.time += dt;
+    for (let i = G.particles.length - 1; i >= 0; i--){
+      const p = G.particles[i]; p.t += dt;
+      if (p.t >= p.life){ G.particles.splice(i, 1); continue; }
+      p.x += p.vx * dt; p.y += p.vy * dt; p.vy += 420 * dt;
+    }
+    for (let i = G.pops.length - 1; i >= 0; i--){
+      const p = G.pops[i]; p.t += dt; p.y -= 26 * dt;
+      if (p.t >= p.life) G.pops.splice(i, 1);
+    }
+    mouse.click = false;
+    pressed.length = 0;
+    return;
+  }
+  if (took('Escape')){ G.overlay = 'pause'; G.menuIndex = 0; sfx('ui'); saveGame(); }
+  if (took('KeyE')) interact();
+  if (took('KeyM')) G.showMap = !G.showMap;
+
+  updatePlayer(dt);
+  updateMobs(dt);
+  updateWorld(dt);
+  mouse.click = false;
+  pressed.length = 0;
+}
+
+/* =========================================================================
+   RENDERING
+   ========================================================================= */
+const cv = document.getElementById('cv');
+const ctx = cv.getContext('2d', { alpha:false });
+const lightCv = document.createElement('canvas');
+lightCv.width = 420; lightCv.height = 236;
+const lctx = lightCv.getContext('2d');
+
+let SCALE = 1, OFFX = 0, OFFY = 0, camX = 0, camY = 0;
+
+function tileHash(x, y){
+  let h = (x * 374761393 + y * 668265263) ^ 0x5bf03635;
+  h = Math.imul(h ^ (h >>> 13), 1274126177);
+  return ((h ^ (h >>> 16)) >>> 0) / 4294967296;
+}
+
+function render(){
+  const lv = currentLevel();
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  ctx.fillStyle = '#04050a';
+  ctx.fillRect(0, 0, cv.width, cv.height);
+  ctx.setTransform(SCALE, 0, 0, SCALE, OFFX, OFFY);
+
+  /* ---- camera ---- */
+  const worldW = lv.w * TS, worldH = lv.h * TS;
+  let tx = P.px + TS / 2 - VW / 2, ty = P.py + TS / 2 - VH / 2;
+  camX = worldW > VW ? clamp(tx, 0, worldW - VW) : (worldW - VW) / 2;
+  camY = worldH > VH ? clamp(ty, 0, worldH - VH) : (worldH - VH) / 2;
+  if (G.shake > 0.02){
+    camX += (rnd() - 0.5) * G.shake * 2;
+    camY += (rnd() - 0.5) * G.shake * 2;
+  }
+
+  ctx.save();
+  ctx.translate(-Math.round(camX), -Math.round(camY));
+  drawBackdrop(lv);
+  drawTiles(lv);
+  if (lv.props) drawBuildings(lv);
+  drawMobs(lv);
+  drawPlayer();
+  drawParticles();
+  ctx.restore();
+
+  drawLighting(lv);
+
+  ctx.save();
+  ctx.translate(-Math.round(camX), -Math.round(camY));
+  drawPops();
+  ctx.restore();
+
+  drawHUD(lv);
+  if (G.showMap && G.scene === 'mine') drawMap(lv);
+  if (G.overlay) drawMenu();
+  drawFlashes();
+}
+
+/* ------------------------------------------------------------ backdrop -- */
+function drawBackdrop(lv){
+  const x0 = Math.max(0, Math.floor(camX / TS)), x1 = Math.min(lv.w, Math.ceil((camX + VW) / TS));
+  const y0 = Math.max(0, Math.floor(camY / TS)), y1 = Math.min(lv.h, Math.ceil((camY + VH) / TS));
+  ctx.fillStyle = G.scene === 'town' ? '#1a1712' : '#0b0d13';
+  ctx.fillRect(x0 * TS, y0 * TS, (x1 - x0) * TS, (y1 - y0) * TS);
+}
+
+/* --------------------------------------------------------------- tiles -- */
+function drawTiles(lv){
+  const x0 = Math.max(0, Math.floor(camX / TS) - 1), x1 = Math.min(lv.w, Math.ceil((camX + VW) / TS) + 1);
+  const y0 = Math.max(0, Math.floor(camY / TS) - 1), y1 = Math.min(lv.h, Math.ceil((camY + VH) / TS) + 1);
+
+  for (let y = y0; y < y1; y++){
+    for (let x = x0; x < x1; x++){
+      const i = y * lv.w + x;
+      if (!lv.seen[i]) continue;
+      const t = lv.type[i], px = x * TS, py = y * TS, n = tileHash(x, y);
+
+      if (t === T_FLOOR || t === T_DOWN || t === T_LIFT){
+        /* dug-out ground */
+        ctx.fillStyle = G.scene === 'town' ? '#2a2318' : '#16181f';
+        ctx.fillRect(px, py, TS, TS);
+        ctx.fillStyle = 'rgba(255,255,255,' + (0.012 + n * 0.02).toFixed(3) + ')';
+        ctx.fillRect(px + 4 + n * 10, py + 6 + n * 14, 6 + n * 8, 3);
+        if (n > 0.93){
+          ctx.fillStyle = 'rgba(0,0,0,.25)';
+          ctx.fillRect(px + 12, py + 20, 14, 7);
+        }
+        if (t === T_DOWN) drawStairs(px, py);
+        if (t === T_LIFT) drawLift(px, py);
+        continue;
+      }
+      if (t === T_WALL) continue;             // town buildings draw themselves
+
+      if (t === T_BEDROCK){
+        ctx.fillStyle = '#0a0b10'; ctx.fillRect(px, py, TS, TS);
+        ctx.fillStyle = '#12141c';
+        ctx.fillRect(px + 3, py + 3, TS - 6, TS - 6);
+        continue;
+      }
+      if (t === T_LAVA){
+        const pulse = 0.5 + 0.5 * Math.sin(G.time * 2.4 + n * 9);
+        ctx.fillStyle = '#3a1205'; ctx.fillRect(px, py, TS, TS);
+        ctx.fillStyle = 'rgb(' + Math.round(200 + 55 * pulse) + ',' + Math.round(70 + 60 * pulse) + ',30)';
+        ctx.fillRect(px + 2, py + 2, TS - 4, TS - 4);
+        ctx.fillStyle = 'rgba(255,230,150,' + (0.25 + 0.35 * pulse).toFixed(2) + ')';
+        ctx.fillRect(px + 8, py + 10 + pulse * 6, TS - 16, 5);
+        continue;
+      }
+
+      /* solid rock */
+      let base, hi, lo;
+      if (t === T_DIRT){ base = '#5a4028'; hi = '#6e5034'; lo = '#3c2a1a'; }
+      else            { base = '#4a4f5c'; hi = '#5c6270'; lo = '#33373f'; }
+      if (t === T_CRYSTAL){ base = '#2a3f52'; hi = '#3d5b73'; lo = '#1b2a38'; }
+      ctx.fillStyle = base; ctx.fillRect(px, py, TS, TS);
+      ctx.fillStyle = hi;   ctx.fillRect(px, py, TS, 3);
+      ctx.fillStyle = lo;   ctx.fillRect(px, py + TS - 4, TS, 4);
+      ctx.fillStyle = 'rgba(0,0,0,.20)';
+      ctx.fillRect(px + TS - 3, py, 3, TS);
+      /* speckles */
+      ctx.fillStyle = 'rgba(0,0,0,.18)';
+      ctx.fillRect(px + 6 + n * 22, py + 8 + n * 20, 5, 4);
+      ctx.fillStyle = 'rgba(255,255,255,.05)';
+      ctx.fillRect(px + 22 - n * 14, py + 26 - n * 16, 4, 3);
+
+      if (t === T_ORE && lv.ore[i]){
+        const o = ORE[lv.ore[i]];
+        const blobs = 4;
+        for (let b = 0; b < blobs; b++){
+          const bn = tileHash(x * 7 + b, y * 13 + b);
+          const bx = px + 6 + bn * (TS - 20), by = py + 6 + ((bn * 7.3) % 1) * (TS - 20);
+          const s = 7 + bn * 6;
+          ctx.fillStyle = o.color;
+          ctx.fillRect(bx, by, s, s);
+          ctx.fillStyle = o.spec;
+          ctx.fillRect(bx + 1, by + 1, Math.max(2, s * 0.35), Math.max(2, s * 0.35));
+        }
+      }
+      if (t === T_CRYSTAL){
+        const g = 0.6 + 0.4 * Math.sin(G.time * 3 + n * 8);
+        ctx.fillStyle = 'rgba(127,216,255,' + (0.5 + g * 0.4).toFixed(2) + ')';
+        ctx.beginPath();
+        ctx.moveTo(px + TS / 2, py + 6); ctx.lineTo(px + TS - 9, py + TS / 2);
+        ctx.lineTo(px + TS / 2, py + TS - 6); ctx.lineTo(px + 9, py + TS / 2);
+        ctx.closePath(); ctx.fill();
+      }
+
+      /* mining cracks */
+      const pr = lv.prog[i];
+      if (pr > 0.02){
+        ctx.strokeStyle = 'rgba(0,0,0,' + (0.25 + pr * 0.6).toFixed(2) + ')';
+        ctx.lineWidth = 1 + pr * 2;
+        ctx.beginPath();
+        ctx.moveTo(px + 8, py + 10); ctx.lineTo(px + TS / 2, py + TS / 2);
+        ctx.lineTo(px + TS - 10, py + 14);
+        ctx.moveTo(px + TS / 2, py + TS / 2); ctx.lineTo(px + 12, py + TS - 9);
+        ctx.moveTo(px + TS / 2, py + TS / 2); ctx.lineTo(px + TS - 8, py + TS - 12);
+        ctx.stroke();
+      }
+    }
+  }
+}
+
+function drawStairs(px, py){
+  ctx.fillStyle = '#0b0e14'; ctx.fillRect(px + 4, py + 4, TS - 8, TS - 8);
+  for (let s = 0; s < 4; s++){
+    ctx.fillStyle = 'rgba(159,232,255,' + (0.14 + s * 0.13).toFixed(2) + ')';
+    ctx.fillRect(px + 6 + s * 4, py + 8 + s * 8, TS - 12 - s * 8, 5);
+  }
+  const g = 0.5 + 0.5 * Math.sin(G.time * 3);
+  ctx.strokeStyle = 'rgba(159,232,255,' + (0.25 + g * 0.5).toFixed(2) + ')';
+  ctx.lineWidth = 2; ctx.strokeRect(px + 3.5, py + 3.5, TS - 7, TS - 7);
+}
+function drawLift(px, py){
+  ctx.fillStyle = '#1d2129'; ctx.fillRect(px + 3, py + 2, TS - 6, TS - 4);
+  ctx.fillStyle = '#3b424f';
+  ctx.fillRect(px + 3, py + 2, 4, TS - 4);
+  ctx.fillRect(px + TS - 7, py + 2, 4, TS - 4);
+  const g = 0.5 + 0.5 * Math.sin(G.time * 2.2);
+  ctx.fillStyle = 'rgba(255,210,127,' + (0.35 + g * 0.45).toFixed(2) + ')';
+  ctx.fillRect(px + 9, py + 8, TS - 18, TS - 20);
+  ctx.fillStyle = '#ffd27f';
+  ctx.fillRect(px + TS / 2 - 8, py + TS - 12, 16, 3);
+}
+
+/* ----------------------------------------------------------- buildings -- */
+function drawBuildings(lv){
+  for (const b of lv.props){
+    const px = b.x * TS, py = b.y * TS, w = b.w * TS, h = b.h * TS;
+    /* wall */
+    ctx.fillStyle = '#242a35'; ctx.fillRect(px, py + 16, w, h - 16);
+    for (let i = 0; i < b.h * 2; i++){                       // plank lines
+      ctx.fillStyle = i % 2 ? 'rgba(255,255,255,.028)' : 'rgba(0,0,0,.18)';
+      ctx.fillRect(px, py + 20 + i * 22, w, 2);
+    }
+    /* roof */
+    ctx.fillStyle = '#161a22';
+    ctx.beginPath();
+    ctx.moveTo(px - 10, py + 20); ctx.lineTo(px + w / 2, py - 6);
+    ctx.lineTo(px + w + 10, py + 20); ctx.closePath(); ctx.fill();
+    ctx.fillStyle = b.color; ctx.globalAlpha = 0.35;
+    ctx.beginPath();
+    ctx.moveTo(px - 10, py + 20); ctx.lineTo(px + w / 2, py - 6);
+    ctx.lineTo(px + w + 10, py + 20); ctx.closePath(); ctx.fill();
+    ctx.globalAlpha = 1;
+    /* windows */
+    const gl = 0.55 + 0.45 * Math.sin(G.time * 1.4 + b.x);
+    const winY = py + 40;
+    for (let i = 0; i < b.w - 2; i++){
+      const wx = px + 26 + i * (w - 52) / Math.max(1, b.w - 3);
+      ctx.fillStyle = '#0c0f15'; ctx.fillRect(wx - 3, winY - 3, 32, 30);
+      ctx.fillStyle = 'rgba(255,205,120,' + (0.3 + gl * 0.45).toFixed(2) + ')';
+      ctx.fillRect(wx, winY, 26, 24);
+      ctx.fillStyle = 'rgba(0,0,0,.45)';
+      ctx.fillRect(wx + 12, winY, 2, 24); ctx.fillRect(wx, winY + 11, 26, 2);
+    }
+    /* doorway with light spilling out */
+    const dpx = b.dx * TS, dTop = py + h - TS - 6;
+    ctx.fillStyle = '#0a0d13'; ctx.fillRect(dpx + 6, dTop, TS - 12, TS + 6);
+    const dg = ctx.createLinearGradient(0, dTop, 0, dTop + TS + 6);
+    dg.addColorStop(0, 'rgba(255,205,120,.55)');
+    dg.addColorStop(1, 'rgba(255,205,120,.05)');
+    ctx.fillStyle = dg; ctx.fillRect(dpx + 9, dTop + 3, TS - 18, TS);
+    ctx.fillStyle = b.color; ctx.fillRect(dpx + 6, dTop + TS + 2, TS - 12, 4);
+    /* lantern */
+    ctx.fillStyle = '#3b424f'; ctx.fillRect(dpx - 10, dTop + 4, 6, 12);
+    ctx.fillStyle = 'rgba(255,210,127,' + (0.55 + gl * 0.4).toFixed(2) + ')';
+    ctx.fillRect(dpx - 11, dTop + 14, 8, 9);
+    /* sign */
+    ctx.font = 'bold 15px ui-monospace,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    const tw2 = ctx.measureText(b.label).width + 30;
+    ctx.fillStyle = 'rgba(6,8,12,.92)';
+    roundRect(px + w / 2 - tw2 / 2, py - 40, tw2, 26, 6); ctx.fill();
+    ctx.strokeStyle = b.color; ctx.lineWidth = 1.5;
+    roundRect(px + w / 2 - tw2 / 2, py - 40, tw2, 26, 6); ctx.stroke();
+    ctx.fillStyle = b.color;
+    ctx.fillText(b.label, px + w / 2, py - 26);
+    ctx.font = '11px ui-monospace,monospace';
+    ctx.fillStyle = 'rgba(200,210,230,.55)';
+    ctx.fillText('press E', px + w / 2, py + h + 22);
+  }
+}
+
+/* --------------------------------------------------------------- mobs --- */
+function drawMobs(lv){
+  for (const m of lv.mobs){
+    if (!lv.seen[m.y * lv.w + m.x]) continue;
+    const def = MOBS[m.kind], px = m.px, py = m.py;
+    const bob = Math.sin(G.time * 5 + m.x) * 3;
+    ctx.save();
+    ctx.translate(px + TS / 2, py + TS / 2 + bob);
+    if (m.hurt > 0){ ctx.globalAlpha = 0.6 + Math.sin(G.time * 60) * 0.3; }
+    ctx.fillStyle = 'rgba(0,0,0,.45)';
+    ctx.beginPath(); ctx.ellipse(0, 16 - bob, 15, 5, 0, 0, 6.3); ctx.fill();
+    ctx.fillStyle = def.color;
+    if (m.kind === 'bat'){
+      const f = Math.sin(G.time * 16) * 9;
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(-20, -6 + f); ctx.lineTo(-7, 6); ctx.closePath(); ctx.fill();
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(20, -6 + f);  ctx.lineTo(7, 6);  ctx.closePath(); ctx.fill();
+      ctx.fillRect(-6, -7, 12, 15);
+    } else if (m.kind === 'golem'){
+      ctx.fillRect(-16, -16, 32, 30);
+      ctx.fillStyle = '#4c5747'; ctx.fillRect(-12, -12, 9, 9); ctx.fillRect(4, -4, 10, 10);
+    } else if (m.kind === 'wraith'){
+      ctx.globalAlpha *= 0.85;
+      ctx.beginPath(); ctx.moveTo(0, -20);
+      ctx.quadraticCurveTo(18, 0, 10, 18); ctx.quadraticCurveTo(0, 10, -10, 18);
+      ctx.quadraticCurveTo(-18, 0, 0, -20); ctx.fill();
+    } else {
+      ctx.fillRect(-14, -10, 28, 20);
+      ctx.fillStyle = '#4b3a86';
+      for (let l = 0; l < 3; l++){
+        const s = Math.sin(G.time * 9 + l) * 4;
+        ctx.fillRect(-14 + l * 11, 9, 5, 8 + s);
+      }
+    }
+    /* eyes */
+    ctx.fillStyle = '#ff5f5f';
+    ctx.fillRect(-7, -6, 4, 4); ctx.fillRect(3, -6, 4, 4);
+    ctx.restore();
+
+    /* health pip */
+    if (m.hp < m.maxhp){
+      ctx.fillStyle = 'rgba(0,0,0,.6)'; ctx.fillRect(px + 8, py - 8, TS - 16, 5);
+      ctx.fillStyle = '#ff6b6b';
+      ctx.fillRect(px + 8, py - 8, (TS - 16) * (m.hp / m.maxhp), 5);
+    }
+  }
+}
+
+/* -------------------------------------------------------------- player -- */
+function drawPlayer(){
+  const px = P.px, py = P.py;
+  const walk = P.moving ? Math.sin(P.walkAnim) : 0;
+  ctx.save();
+  ctx.translate(px + TS / 2, py + TS / 2);
+  ctx.fillStyle = 'rgba(0,0,0,.5)';
+  ctx.beginPath(); ctx.ellipse(0, 17, 14, 5, 0, 0, 6.3); ctx.fill();
+
+  /* legs */
+  ctx.fillStyle = '#2f3a55';
+  ctx.fillRect(-9, 6 + walk * 2, 7, 12);
+  ctx.fillRect(2,  6 - walk * 2, 7, 12);
+  /* body */
+  ctx.fillStyle = '#3f6ea8'; ctx.fillRect(-11, -8, 22, 16);
+  ctx.fillStyle = '#548ccc'; ctx.fillRect(-11, -8, 22, 5);
+  /* pack */
+  ctx.fillStyle = '#6b4f32';
+  ctx.fillRect(P.dir === 1 ? -16 : 10, -7, 6, 13);
+  /* head + helmet */
+  ctx.fillStyle = '#e3b58a'; ctx.fillRect(-7, -20, 14, 12);
+  ctx.fillStyle = '#ffc14d'; ctx.fillRect(-9, -24, 18, 6);
+  ctx.fillRect(P.dir === 3 ? -13 : 7, -23, 6, 4);
+  /* lamp glow */
+  ctx.fillStyle = 'rgba(255,240,190,.9)';
+  ctx.fillRect(-3, -23, 6, 4);
+  /* eyes */
+  ctx.fillStyle = '#12151c';
+  if (P.dir !== 0) ctx.fillRect(P.dir === 3 ? -6 : 1, -15, 5, 3);
+
+  /* pickaxe */
+  const swinging = P.swing > 0;
+  const a = swinging ? -1.1 + (1 - P.swing / 0.22) * 2.1 : -0.6 + Math.sin(G.time * 2) * 0.06;
+  const flip = (P.dir === 3) ? -1 : 1;
+  ctx.save();
+  ctx.scale(flip, 1);
+  ctx.translate(10, -2);
+  ctx.rotate(a);
+  ctx.strokeStyle = '#8b5e34'; ctx.lineWidth = 4; ctx.lineCap = 'round';
+  ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(20, -14); ctx.stroke();
+  ctx.fillStyle = ['#8a8f99','#b8c0cc','#cfd8e3','#ffd27f','#7fe7ff','#c9a6ff'][G.up.pick] || '#b8c0cc';
+  ctx.beginPath();
+  ctx.moveTo(14, -18); ctx.quadraticCurveTo(24, -22, 28, -12);
+  ctx.quadraticCurveTo(20, -9, 14, -11); ctx.closePath(); ctx.fill();
+  ctx.restore();
+  ctx.restore();
+
+  /* mining progress ring on the target tile */
+  if (P.mining){
+    const t = clamp(P.mineT / P.mineNeed, 0, 1);
+    const cx = P.mining.x * TS + TS / 2, cy = P.mining.y * TS + TS / 2;
+    ctx.strokeStyle = 'rgba(0,0,0,.55)'; ctx.lineWidth = 5;
+    ctx.beginPath(); ctx.arc(cx, cy, 19, 0, Math.PI * 2); ctx.stroke();
+    ctx.strokeStyle = '#ffc14d'; ctx.lineWidth = 4;
+    ctx.beginPath(); ctx.arc(cx, cy, 19, -Math.PI / 2, -Math.PI / 2 + t * Math.PI * 2); ctx.stroke();
+  }
+}
+
+function drawParticles(){
+  for (const p of G.particles){
+    const k = 1 - p.t / p.life;
+    ctx.globalAlpha = clamp(k, 0, 1);
+    ctx.fillStyle = p.color;
+    ctx.fillRect(p.x, p.y, p.size * k + 1, p.size * k + 1);
+  }
+  ctx.globalAlpha = 1;
+}
+function drawPops(){
+  ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  for (const p of G.pops){
+    const k = 1 - p.t / p.life;
+    ctx.globalAlpha = clamp(k * 1.4, 0, 1);
+    ctx.font = 'bold 17px ui-monospace,monospace';
+    ctx.fillStyle = 'rgba(0,0,0,.75)';
+    ctx.fillText(p.text, p.x + 2, p.y + 2);
+    ctx.fillStyle = p.color;
+    ctx.fillText(p.text, p.x, p.y);
+  }
+  ctx.globalAlpha = 1;
+}
+
+/* ------------------------------------------------------------ lighting -- */
+function drawLighting(lv){
+  const LW = lightCv.width, LH = lightCv.height;
+  const sx = LW / VW, sy = LH / VH;
+  const dark = G.scene === 'town' ? 0.52 : 0.90;
+  lctx.setTransform(1, 0, 0, 1, 0, 0);
+  lctx.globalCompositeOperation = 'source-over';
+  lctx.fillStyle = 'rgba(0,0,0,1)';
+  lctx.fillRect(0, 0, LW, LH);
+  lctx.globalCompositeOperation = 'destination-out';
+
+  const punch = (wx, wy, rTiles, power) => {
+    const x = (wx - camX) * sx, y = (wy - camY) * sy, r = rTiles * TS * sx;
+    if (x < -r || y < -r || x > LW + r || y > LH + r) return;
+    const g = lctx.createRadialGradient(x, y, 0, x, y, r);
+    g.addColorStop(0,   'rgba(0,0,0,' + power + ')');
+    g.addColorStop(0.55,'rgba(0,0,0,' + power * 0.72 + ')');
+    g.addColorStop(1,   'rgba(0,0,0,0)');
+    lctx.fillStyle = g;
+    lctx.beginPath(); lctx.arc(x, y, r, 0, 6.3); lctx.fill();
+  };
+
+  const flick = 1 + Math.sin(G.time * 9) * 0.018 + Math.sin(G.time * 23) * 0.01;
+  punch(P.px + TS / 2, P.py + TS / 2, tier('lamp').radius * flick, 1);
+  /* the lamp throws a longer cone the way you face */
+  const [fx, fy] = dirVec(P.dir);
+  punch(P.px + TS / 2 + fx * TS * 1.7, P.py + TS / 2 + fy * TS * 1.7,
+        tier('lamp').radius * 0.72, 0.9);
+  for (const l of lv.lights) punch(l.x * TS + TS / 2, l.y * TS + TS / 2, l.r, l.pw == null ? 0.8 : l.pw);
+  for (const p of G.particles) if (p.t < p.life * 0.5) punch(p.x, p.y, 0.5, 0.35);
+
+  lctx.globalCompositeOperation = 'source-over';
+  ctx.save();
+  ctx.globalAlpha = dark;
+  ctx.imageSmoothingEnabled = true;
+  ctx.drawImage(lightCv, 0, 0, VW, VH);
+  ctx.restore();
+
+  /* warm tint from the lamp */
+  ctx.save();
+  ctx.globalCompositeOperation = 'overlay';
+  ctx.globalAlpha = 0.10;
+  ctx.fillStyle = G.scene === 'town' ? '#ffcf8a' : '#7fb0ff';
+  ctx.fillRect(0, 0, VW, VH);
+  ctx.restore();
+}
+
+/* ------------------------------------------------------------------ HUD -- */
+function panel(x, y, w, h, alpha){
+  ctx.fillStyle = 'rgba(9,11,17,' + (alpha == null ? 0.82 : alpha) + ')';
+  ctx.strokeStyle = 'rgba(90,104,134,.5)';
+  ctx.lineWidth = 1;
+  roundRect(x, y, w, h, 10); ctx.fill(); ctx.stroke();
+}
+function roundRect(x, y, w, h, r){
+  ctx.beginPath();
+  ctx.moveTo(x + r, y);
+  ctx.arcTo(x + w, y, x + w, y + h, r);
+  ctx.arcTo(x + w, y + h, x, y + h, r);
+  ctx.arcTo(x, y + h, x, y, r);
+  ctx.arcTo(x, y, x + w, y, r);
+  ctx.closePath();
+}
+function bar(x, y, w, h, v, max, col, label){
+  ctx.fillStyle = 'rgba(0,0,0,.55)';
+  roundRect(x, y, w, h, h / 2); ctx.fill();
+  const k = clamp(v / max, 0, 1);
+  const g = ctx.createLinearGradient(x, 0, x + w, 0);
+  g.addColorStop(0, col[0]); g.addColorStop(1, col[1]);
+  ctx.fillStyle = g;
+  if (k > 0.001){ roundRect(x, y, Math.max(h, w * k), h, h / 2); ctx.fill(); }
+  ctx.strokeStyle = 'rgba(255,255,255,.14)'; ctx.lineWidth = 1;
+  roundRect(x, y, w, h, h / 2); ctx.stroke();
+  ctx.font = 'bold 12px ui-monospace,monospace';
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.fillStyle = 'rgba(255,255,255,.92)';
+  ctx.fillText(label + '  ' + Math.ceil(v) + '/' + max, x + 10, y + h / 2 + 1);
+}
+
+function drawHUD(lv){
+  ctx.textBaseline = 'middle';
+
+  /* top-left: depth + money */
+  panel(22, 20, 360, 74);
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 26px ui-monospace,monospace';
+  ctx.fillStyle = '#ffc14d';
+  ctx.fillText('$' + G.money.toLocaleString('en-US'), 40, 45);
+  ctx.font = '13px ui-monospace,monospace';
+  ctx.fillStyle = '#8d97ae';
+  ctx.fillText(G.scene === 'town' ? 'SURFACE CAMP'
+             : 'DEPTH ' + String(G.depth).padStart(2, '0') + ' · ' + depthName(G.depth).toUpperCase(),
+             40, 74);
+  ctx.textAlign = 'right';
+  ctx.font = '12px ui-monospace,monospace';
+  ctx.fillStyle = '#5fd0ff';
+  ctx.fillText(pickStat().name.toUpperCase(), 366, 45);
+  ctx.fillStyle = '#6b7a8c';
+  ctx.fillText('BEST ' + G.maxDepth, 366, 74);
+
+  /* bottom-left: vitals */
+  panel(22, VH - 128, 330, 106);
+  bar(38, VH - 114, 298, 20, G.hp,    maxHP(),    ['#7a2130', '#ff6b6b'], 'HP');
+  bar(38, VH - 86,  298, 20, G.food,  maxFood(),  ['#5a4a16', '#ffc14d'], 'FOOD');
+  bar(38, VH - 58,  298, 20, G.water, maxWater(), ['#123f57', '#5fd0ff'], 'WATER');
+
+  /* right: backpack */
+  const ids = Object.keys(G.inv).filter(k => G.inv[k] > 0).sort((a, b) => ORE[b].value - ORE[a].value);
+  const ph = 86 + Math.max(1, ids.length) * 26;
+  panel(VW - 312, 20, 290, ph);
+  ctx.textAlign = 'left';
+  ctx.font = 'bold 13px ui-monospace,monospace';
+  ctx.fillStyle = '#e7ecf5';
+  ctx.fillText('BACKPACK', VW - 292, 44);
+  ctx.textAlign = 'right';
+  ctx.fillStyle = carried() >= bagCap() ? '#ff6b6b' : '#8d97ae';
+  ctx.fillText(carried() + ' / ' + bagCap(), VW - 42, 44);
+  bar(VW - 292, 56, 250, 8, carried(), bagCap(), ['#3a2f12', '#ffc14d'], '');
+  let yy = 90;
+  if (!ids.length){
+    ctx.textAlign = 'left';
+    ctx.font = '12px ui-monospace,monospace';
+    ctx.fillStyle = '#5b6377';
+    ctx.fillText('empty — go break some rock', VW - 292, yy);
+  }
+  for (const id of ids){
+    const o = ORE[id];
+    ctx.fillStyle = o.color;
+    ctx.fillRect(VW - 292, yy - 7, 13, 13);
+    ctx.fillStyle = o.spec;
+    ctx.fillRect(VW - 290, yy - 5, 5, 5);
+    ctx.textAlign = 'left';
+    ctx.font = '13px ui-monospace,monospace';
+    ctx.fillStyle = '#c9d2e2';
+    ctx.fillText(o.name, VW - 272, yy);
+    ctx.textAlign = 'right';
+    ctx.fillStyle = '#8d97ae';
+    ctx.fillText('×' + G.inv[id], VW - 112, yy);
+    ctx.fillStyle = '#ffc14d';
+    ctx.fillText('$' + (G.inv[id] * o.value), VW - 42, yy);
+    yy += 26;
+  }
+
+  /* messages */
+  ctx.textAlign = 'center';
+  let my = VH - 180;
+  for (let i = G.msgs.length - 1; i >= 0; i--){
+    const m = G.msgs[i];
+    const k = clamp((m.life - m.t) * 1.6, 0, 1);
+    ctx.globalAlpha = k;
+    ctx.font = 'bold 16px ui-monospace,monospace';
+    const w = ctx.measureText(m.text).width + 34;
+    panel(VW / 2 - w / 2, my - 16, w, 32, 0.7 * k);
+    ctx.fillStyle = m.color;
+    ctx.fillText(m.text, VW / 2, my + 1);
+    ctx.globalAlpha = 1;
+    my -= 38;
+  }
+
+  if (G.scene === 'mine') drawGuides(lv);
+
+  /* hints */
+  ctx.textAlign = 'center';
+  ctx.font = '12px ui-monospace,monospace';
+  ctx.fillStyle = 'rgba(141,151,174,.75)';
+  ctx.fillText(G.scene === 'town'
+    ? 'WASD walk · E enter a building · ESC pause & save'
+    : 'WASD walk & mine · E use lift/stairs · M map · ESC pause & save',
+    VW / 2, VH - 24);
+}
+
+function drawGuides(lv){
+  const targets = [
+    { x:lv.dnX, y:lv.dnY, col:'#9fe8ff', tag:'DOWN' },
+    { x:lv.upX, y:lv.upY, col:'#ffd27f', tag:'LIFT' },
+  ];
+  const mL = 74, mR = 74, mT = 210, mB = 160;
+  for (const t of targets){
+    const wx = t.x * TS + TS / 2, wy = t.y * TS + TS / 2;
+    const sx = wx - camX, sy = wy - camY;
+    const inside = sx > mL && sx < VW - mR && sy > mT && sy < VH - mB;
+    if (inside) continue;
+    const cx = VW / 2, cy = (mT + (VH - mB)) / 2;
+    const a = Math.atan2(sy - cy, sx - cx);
+    const halfW = VW / 2 - mL, halfH = (VH - mB - mT) / 2;
+    const rx = halfW / Math.max(1e-3, Math.abs(Math.cos(a)));
+    const ry = halfH / Math.max(1e-3, Math.abs(Math.sin(a)));
+    const r = Math.min(rx, ry);
+    const px = cx + Math.cos(a) * r, py = cy + Math.sin(a) * r;
+    const dist = Math.round(Math.hypot(t.x - P.x, t.y - P.y));
+    ctx.save();
+    ctx.translate(px, py);
+    ctx.globalAlpha = 0.8;
+    ctx.rotate(a);
+    ctx.fillStyle = t.col;
+    ctx.beginPath(); ctx.moveTo(14, 0); ctx.lineTo(-10, -9); ctx.lineTo(-10, 9); ctx.closePath(); ctx.fill();
+    ctx.rotate(-a);
+    ctx.font = 'bold 11px ui-monospace,monospace';
+    ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+    ctx.fillStyle = 'rgba(0,0,0,.7)';
+    ctx.fillRect(-26, 14, 52, 16);
+    ctx.fillStyle = t.col;
+    ctx.fillText(t.tag + ' ' + dist, 0, 23);
+    ctx.restore();
+  }
+  ctx.globalAlpha = 1;
+}
+
+function drawFlashes(){
+  if (G.hurtFlash > 0.01){
+    ctx.fillStyle = 'rgba(255,40,40,' + (G.hurtFlash * 0.28).toFixed(3) + ')';
+    ctx.fillRect(0, 0, VW, VH);
+  }
+  if (G.goldFlash > 0.01){
+    ctx.fillStyle = 'rgba(255,200,90,' + (G.goldFlash * 0.09).toFixed(3) + ')';
+    ctx.fillRect(0, 0, VW, VH);
+  }
+  /* vignette */
+  const g = ctx.createRadialGradient(VW / 2, VH / 2, VH * 0.3, VW / 2, VH / 2, VH * 0.82);
+  g.addColorStop(0, 'rgba(0,0,0,0)');
+  g.addColorStop(1, 'rgba(0,0,0,.55)');
+  ctx.fillStyle = g; ctx.fillRect(0, 0, VW, VH);
+}
+
+/* ------------------------------------------------------------------ map -- */
+function drawMap(lv){
+  const s = 9, mw = lv.w * s, mh = lv.h * s;
+  const x0 = VW / 2 - mw / 2, y0 = VH / 2 - mh / 2;
+  panel(x0 - 18, y0 - 44, mw + 36, mh + 74, 0.93);
+  ctx.textAlign = 'center';
+  ctx.font = 'bold 15px ui-monospace,monospace';
+  ctx.fillStyle = '#9fe8ff';
+  ctx.fillText('DEPTH ' + G.depth + ' — ' + depthName(G.depth).toUpperCase(), VW / 2, y0 - 24);
+  for (let y = 0; y < lv.h; y++) for (let x = 0; x < lv.w; x++){
+    const i = y * lv.w + x;
+    if (!lv.seen[i]) continue;
+    const t = lv.type[i];
+    let c = '#1b1f28';
+    if (t === T_FLOOR) c = '#39414f';
+    else if (t === T_DIRT) c = '#5a4028';
+    else if (t === T_STONE) c = '#4a4f5c';
+    else if (t === T_ORE) c = ORE[lv.ore[i]] ? ORE[lv.ore[i]].color : '#888';
+    else if (t === T_LAVA) c = '#ff7a33';
+    else if (t === T_CRYSTAL) c = '#7fd8ff';
+    else if (t === T_DOWN) c = '#9fe8ff';
+    else if (t === T_LIFT) c = '#ffd27f';
+    else if (t === T_BEDROCK) c = '#0a0b10';
+    ctx.fillStyle = c;
+    ctx.fillRect(x0 + x * s, y0 + y * s, s, s);
+  }
+  ctx.fillStyle = '#ffffff';
+  ctx.fillRect(x0 + P.x * s - 1, y0 + P.y * s - 1, s + 2, s + 2);
+  ctx.font = '12px ui-monospace,monospace';
+  ctx.fillStyle = '#8d97ae';
+  ctx.fillText('M to close · white = you · amber = lift up · cyan = stairs down', VW / 2, y0 + mh + 18);
+}
+
+/* ----------------------------------------------------------------- menu -- */
+function drawMenu(){
+  const menu = buildMenu();
+  if (!menu) return;
+  ctx.fillStyle = 'rgba(4,5,10,.74)';
+  ctx.fillRect(0, 0, VW, VH);
+
+  const rowH = 54, w = 860;
+  const maxRows = Math.max(3, Math.floor((VH - 300) / rowH));
+  const total = menu.rows.length;
+  const view = Math.min(total, maxRows);
+  let first = clamp(G.menuIndex - (view >> 1), 0, Math.max(0, total - view));
+  const shown = menu.rows.slice(first, first + view);
+  const h = 150 + view * rowH + 48;
+  const x = VW / 2 - w / 2, y = clamp(VH / 2 - h / 2, 30, VH - h - 20);
+  panel(x, y, w, h, 0.96);
+
+  ctx.textAlign = 'left'; ctx.textBaseline = 'middle';
+  ctx.font = 'bold 30px ui-monospace,monospace';
+  ctx.fillStyle = '#ffc14d';
+  ctx.fillText(menu.title, x + 36, y + 48);
+  ctx.textAlign = 'right';
+  ctx.font = 'bold 20px ui-monospace,monospace';
+  ctx.fillStyle = '#6ee7a0';
+  ctx.fillText('$' + G.money.toLocaleString('en-US'), x + w - 36, y + 48);
+  ctx.textAlign = 'left';
+  ctx.font = '13px ui-monospace,monospace';
+  ctx.fillStyle = '#8d97ae';
+  wrapText(menu.sub || '', x + 36, y + 84, w - 72, 18);
+
+  G.menuRects = [];
+  let ry = y + 120;
+  shown.forEach((r, k) => {
+    const i = first + k;
+    const sel = i === G.menuIndex;
+    G.menuRects.push({ x:x + 24, y:ry, w:w - 48, h:rowH - 8, i });
+    if (sel){
+      ctx.fillStyle = 'rgba(95,208,255,.13)';
+      roundRect(x + 24, ry, w - 48, rowH - 8, 8); ctx.fill();
+      ctx.strokeStyle = 'rgba(95,208,255,.55)'; ctx.lineWidth = 1;
+      roundRect(x + 24, ry, w - 48, rowH - 8, 8); ctx.stroke();
+      ctx.fillStyle = '#5fd0ff';
+      ctx.fillRect(x + 24, ry + 8, 3, rowH - 24);
+    }
+    ctx.textAlign = 'left';
+    ctx.font = 'bold 16px ui-monospace,monospace';
+    ctx.fillStyle = r.dim ? '#5b6377' : (r.color || '#e7ecf5');
+    ctx.fillText(r.label, x + 44, ry + (r.sub ? 17 : rowH / 2 - 4));
+    if (r.sub){
+      ctx.font = '12px ui-monospace,monospace';
+      ctx.fillStyle = '#7d879c';
+      ctx.fillText(r.sub, x + 44, ry + 36);
+    }
+    if (r.right){
+      ctx.textAlign = 'right';
+      ctx.font = 'bold 16px ui-monospace,monospace';
+      ctx.fillStyle = r.dim ? '#5b6377' : '#ffc14d';
+      ctx.fillText(r.right, x + w - 44, ry + rowH / 2 - 4);
+    }
+    ry += rowH;
+  });
+
+  ctx.textAlign = 'center';
+  ctx.font = '12px ui-monospace,monospace';
+  ctx.fillStyle = '#7d879c';
+  let foot = menu.foot || '';
+  if (total > view) foot += '   ·   ' + (G.menuIndex + 1) + '/' + total;
+  ctx.fillText(foot, VW / 2, y + h - 24);
+  if (first > 0){
+    ctx.fillStyle = '#5fd0ff'; ctx.fillText('▲', VW / 2, y + 110);
+  }
+  if (first + view < total){
+    ctx.fillStyle = '#5fd0ff'; ctx.fillText('▼', VW / 2, y + h - 44);
+  }
+}
+function wrapText(text, x, y, maxW, lh){
+  const words = String(text).split(' ');
+  let line = '', yy = y;
+  for (const wd of words){
+    const test = line ? line + ' ' + wd : wd;
+    if (ctx.measureText(test).width > maxW && line){
+      ctx.fillText(line, x, yy); line = wd; yy += lh;
+    } else line = test;
+  }
+  if (line) ctx.fillText(line, x, yy);
+}
+
+/* =========================================================================
+   SOUND (tiny synthesised blips, no assets)
+   ========================================================================= */
+let AC = null, muted = false;
+function audio(){
+  if (!AC){
+    try { AC = new (window.AudioContext || window.webkitAudioContext)(); }
+    catch(e){ muted = true; }
+  }
+  return AC;
+}
+const SFX = {
+  dig:  { f:180, to:90,  d:0.07, type:'square',   g:0.05 },
+  break:{ f:120, to:40,  d:0.18, type:'sawtooth', g:0.08 },
+  pick: { f:680, to:940, d:0.09, type:'triangle', g:0.06 },
+  gem:  { f:880, to:1560,d:0.20, type:'triangle', g:0.09 },
+  hit:  { f:240, to:120, d:0.10, type:'square',   g:0.07 },
+  hurt: { f:200, to:70,  d:0.26, type:'sawtooth', g:0.10 },
+  die:  { f:300, to:50,  d:0.80, type:'sawtooth', g:0.12 },
+  coin: { f:1040,to:1480,d:0.16, type:'square',   g:0.07 },
+  buy:  { f:520, to:820, d:0.14, type:'triangle', g:0.07 },
+  ui:   { f:420, to:460, d:0.05, type:'sine',     g:0.05 },
+  deny: { f:150, to:110, d:0.14, type:'square',   g:0.06 },
+  lift: { f:120, to:420, d:0.45, type:'sine',     g:0.07 },
+};
+function sfx(name){
+  if (muted) return;
+  const s = SFX[name]; if (!s) return;
+  const ac = audio(); if (!ac) return;
+  try {
+    const o = ac.createOscillator(), g = ac.createGain();
+    o.type = s.type;
+    o.frequency.setValueAtTime(s.f, ac.currentTime);
+    o.frequency.exponentialRampToValueAtTime(Math.max(20, s.to), ac.currentTime + s.d);
+    g.gain.setValueAtTime(s.g, ac.currentTime);
+    g.gain.exponentialRampToValueAtTime(0.0001, ac.currentTime + s.d);
+    o.connect(g); g.connect(ac.destination);
+    o.start(); o.stop(ac.currentTime + s.d + 0.02);
+  } catch(e){ /* audio is a luxury, never a blocker */ }
+}
+
+/* =========================================================================
+   BOOT / CAPTURE MODES
+   ========================================================================= */
+const boot     = document.getElementById('boot');
+const badge    = document.getElementById('badge');
+const badgeTxt = document.getElementById('badgeText');
+const badgeStop= document.getElementById('badgeStop');
+const saveLine = document.getElementById('saveLine');
+const fsWarn   = document.getElementById('fsWarn');
+
+const CAP = { mode:'play', rec:null, chunks:[], frames:0, dir:null, running:false, fpsT:0, fpsN:0, fps:0 };
+
+function fitCanvas(w, h, density){
+  cv.width  = Math.round(w * density);
+  cv.height = Math.round(h * density);
+  SCALE = cv.width / VW;                       // every preset is 16:9
+  OFFX = 0; OFFY = 0;
+  layout();
+}
+function layout(){
+  const availW = innerWidth, availH = innerHeight;
+  const k = Math.min(availW / cv.width, availH / cv.height);
+  cv.style.width  = Math.round(cv.width  * k) + 'px';
+  cv.style.height = Math.round(cv.height * k) + 'px';
+}
+addEventListener('resize', () => { if (cv.width) layout(); });
+
+/* ---------------------------------------------------------------- mouse */
+cv.addEventListener('mousemove', e => {
+  const r = cv.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) / r.width  * VW;
+  mouse.y = (e.clientY - r.top)  / r.height * VH;
+});
+cv.addEventListener('mousedown', e => {
+  const r = cv.getBoundingClientRect();
+  mouse.x = (e.clientX - r.left) / r.width  * VW;
+  mouse.y = (e.clientY - r.top)  / r.height * VH;
+  mouse.click = true;
+});
+
+/* ------------------------------------------------------------ new game - */
+function freshStart(){
+  G.money = 60; G.maxDepth = 1; G.inv = {}; G.depth = 0;
+  for (const k of UP_KEYS) G.up[k] = 0;
+  G.stats = { mined:0, earned:0, deaths:0, kills:0, deepest:0, playtime:0 };
+  G.hp = maxHP(); G.food = maxFood(); G.water = maxWater();
+  G.town = makeTown();
+  G.seenIntro = false;
+  goTown();
+  G.overlay = 'intro'; G.menuIndex = 0;
+}
+
+/* ------------------------------------------------------------- the loop */
+let lastT = 0, acc = 0;
+function frameLoop(now){
+  if (!CAP.running || CAP.mode === 'export') return;
+  requestAnimationFrame(frameLoop);
+  if (!lastT) lastT = now;
+  let dt = (now - lastT) / 1000;
+  lastT = now;
+  dt = Math.min(dt, 0.1);
+  acc += dt;
+  let guard = 0;
+  while (acc >= STEP && guard++ < 6){ step(STEP); acc -= STEP; }
+  render();
+
+  CAP.fpsN++; CAP.fpsT += dt;
+  if (CAP.fpsT >= 0.5){ CAP.fps = Math.round(CAP.fpsN / CAP.fpsT); CAP.fpsN = 0; CAP.fpsT = 0; }
+  if (CAP.mode === 'record' && CAP.rec && CAP.rec.state === 'recording'){
+    const secs = (performance.now() - CAP.recStart) / 1000;
+    badgeTxt.textContent = 'REC ' + CAP.fps + ' fps · ' + fmtClock(secs) + ' · ' + CAP.codec;
+  }
+}
+function fmtClock(s){
+  const m = Math.floor(s / 60);
+  return String(m).padStart(2, '0') + ':' + String(Math.floor(s % 60)).padStart(2, '0');
+}
+
+/* --------------------------------------------------- MediaRecorder path */
+function startRecording(){
+  const prefs = [
+    'video/mp4;codecs=avc1.640028',
+    'video/mp4;codecs=avc1.4d002a',
+    'video/mp4;codecs=avc1.42E01E',
+    'video/mp4',
+    'video/webm;codecs=h264',
+    'video/x-matroska;codecs=avc1',
+    'video/webm;codecs=vp9',
+    'video/webm',
+  ];
+  let mime = '';
+  for (const m of prefs){
+    if (window.MediaRecorder && MediaRecorder.isTypeSupported(m)){ mime = m; break; }
+  }
+  if (!window.MediaRecorder){ alert('MediaRecorder is not available in this browser — falling back to PLAY.'); return false; }
+  const stream = cv.captureStream(60);
+  try {
+    CAP.rec = new MediaRecorder(stream, {
+      mimeType: mime || undefined,
+      videoBitsPerSecond: 48_000_000,
+    });
+  } catch(e){
+    try { CAP.rec = new MediaRecorder(stream); } catch(e2){ alert('Recording failed to start.'); return false; }
+  }
+  CAP.codec = (mime.includes('mp4') || mime.includes('h264') || mime.includes('avc1')) ? 'H.264' : 'VP9/WebM';
+  CAP.chunks = [];
+  CAP.rec.ondataavailable = e => { if (e.data && e.data.size) CAP.chunks.push(e.data); };
+  const rec = CAP.rec;
+  rec.onstop = () => {
+    const type = rec.mimeType || mime || 'video/webm';
+    const blob = new Blob(CAP.chunks, { type });
+    const ext = type.includes('mp4') ? 'mp4' : type.includes('matroska') ? 'mkv' : 'webm';
+    downloadBlob(blob, 'ore-delve-' + Date.now() + '.' + ext);
+    CAP.rec = null;
+    badge.style.display = 'none';
+  };
+  CAP.rec.start(1000);
+  CAP.recStart = performance.now();
+  badge.style.display = 'flex';
+  badgeTxt.textContent = 'REC · ' + CAP.codec;
+  return true;
+}
+function downloadBlob(blob, name){
+  const a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = name;
+  document.body.appendChild(a); a.click();
+  setTimeout(() => { URL.revokeObjectURL(a.href); a.remove(); }, 4000);
+}
+
+/* ------------------------------------------- deterministic PNG sequence */
+async function exportLoop(){
+  badge.style.display = 'flex';
+  const t0 = performance.now();
+  while (CAP.running){
+    step(STEP);                         // exactly 1/60 s of simulation
+    render();
+    const blob = await new Promise(res => cv.toBlob(res, 'image/png'));
+    if (!blob) break;
+    const name = 'frame_' + String(CAP.frames).padStart(6, '0') + '.png';
+    try {
+      const fh = await CAP.dir.getFileHandle(name, { create:true });
+      const ws = await fh.createWritable();
+      await ws.write(blob);
+      await ws.close();
+    } catch(e){
+      alert('Frame export stopped: ' + e.message);
+      break;
+    }
+    CAP.frames++;
+    const wall = (performance.now() - t0) / 1000;
+    badgeTxt.textContent = 'EXPORT ' + CAP.frames + ' frames · ' +
+      fmtClock(CAP.frames / 60) + ' video · ' + (CAP.frames / Math.max(wall, 0.001)).toFixed(1) + ' fps write';
+  }
+  badge.style.display = 'none';
+}
+
+function stopCapture(){
+  if (CAP.mode === 'record' && CAP.rec && CAP.rec.state !== 'inactive'){
+    badgeTxt.textContent = 'SAVING…';
+    CAP.rec.stop();                 // onstop releases CAP.rec and downloads the file
+  }
+  if (CAP.mode === 'export'){ CAP.running = false; }
+  saveGame();
+}
+badgeStop.addEventListener('click', stopCapture);
+
+/* --------------------------------------------------------------- start */
+async function start(mode){
+  const [rw, rh] = document.getElementById('res').value.split('x').map(Number);
+  const dsel = document.getElementById('dpr').value;
+  const density = dsel === 'auto' ? Math.min(devicePixelRatio || 1, 3) : Number(dsel);
+  G.seedText = (document.getElementById('seed').value || '1337').trim();
+  RNG = mulberry32(hashStr(G.seedText));
+
+  fitCanvas(rw, rh, density);
+
+  const saved = readSave();
+  if (saved && document.getElementById('cont') && document.getElementById('cont').checked){
+    loadGame(saved);
+    G.town = makeTown();
+    goTown();
+    if (!G.seenIntro){ G.overlay = 'intro'; G.menuIndex = 0; }
+    msg('Welcome back — $' + G.money + ', best depth ' + G.maxDepth, '#6ee7a0');
+  } else {
+    freshStart();
+  }
+
+  CAP.mode = mode; CAP.frames = 0; CAP.running = true;
+  audio();
+
+  if (mode === 'export'){
+    if (!window.showDirectoryPicker){
+      alert('File System Access is unavailable here (needs Chrome/Edge over https or localhost). Running in PLAY mode instead.');
+      CAP.mode = 'play';
+    } else {
+      try { CAP.dir = await window.showDirectoryPicker({ mode:'readwrite' }); }
+      catch(e){ alert('No folder picked — running in PLAY mode.'); CAP.mode = 'play'; }
+    }
+  }
+  if (CAP.mode === 'record' && !startRecording()) CAP.mode = 'play';
+
+  boot.style.display = 'none';
+  lastT = 0; acc = 0;
+
+  if (CAP.mode === 'export'){ render(); exportLoop(); }
+  else requestAnimationFrame(frameLoop);
+}
+
+/* -------------------------------------------------------- boot panel UI */
+(function initBoot(){
+  const saved = readSave();
+  if (saved){
+    const when = new Date(saved.when || Date.now());
+    saveLine.innerHTML =
+      '<span class="chip">SAVE FOUND</span>' +
+      '<label style="display:flex;align-items:center;gap:6px;margin:0;text-transform:none;letter-spacing:0;color:#e7ecf5;font-size:12px">' +
+      '<input type="checkbox" id="cont" checked style="width:auto"> continue this run</label>' +
+      '<span>$' + (saved.money | 0) + ' · best depth ' + (saved.maxDepth | 0) +
+      ' · saved ' + when.toLocaleString() + '</span>';
+  } else {
+    saveLine.innerHTML = '<span style="color:#8d97ae;font-size:12px">No save yet — a new mine will be dug for you.</span>';
+  }
+  if (!window.showDirectoryPicker)
+    fsWarn.textContent = 'Note: PNG frame export needs the File System Access API (Chrome / Edge, https or localhost).';
+  document.querySelectorAll('.mode').forEach(b => {
+    b.addEventListener('click', () => start(b.dataset.mode));
+  });
+  document.getElementById('seed').addEventListener('keydown', e => {
+    if (e.key === 'Enter') start('play');
+  });
+})();
+</script>
+</body>
+</html>
