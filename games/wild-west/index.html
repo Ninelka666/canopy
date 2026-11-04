@@ -1,0 +1,326 @@
+<!doctype html>
+<html lang="ru">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>Дикий Запад</title>
+<style>
+:root{--bg:#2b1b10;--panel:#4a3320;--panel2:#5e4229;--paper:#f0dfb8;--ink:#2a1a0c;--gold:#e3b23c;--red:#b5392b;--green:#5b8a3c;--blue:#3b78a8}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg) radial-gradient(circle at 50% 0,#6b4528,#2b1b10 70%);color:var(--paper);font:15px/1.4 Georgia,"Times New Roman",serif;min-height:100vh}
+#app{max-width:980px;margin:0 auto;padding:12px}
+h1{margin:4px 0 10px;text-align:center;font-size:30px;letter-spacing:3px;color:var(--gold);text-shadow:2px 2px 0 #000}
+.top{display:grid;grid-template-columns:1fr 1fr;gap:10px}
+@media(max-width:700px){.top{grid-template-columns:1fr}}
+.card{background:var(--panel);border:2px solid #7a5632;border-radius:8px;padding:10px 12px;box-shadow:0 3px 0 #1a0f07}
+.card h2{margin:0 0 6px;font-size:17px;color:var(--gold)}
+.bar{height:14px;background:#1d130b;border-radius:7px;overflow:hidden;margin:2px 0 6px;position:relative}
+.bar>i{display:block;height:100%}
+.bar span{position:absolute;inset:0;text-align:center;font-size:11px;line-height:14px;color:#fff;text-shadow:1px 1px 0 #000}
+.hp>i{background:var(--red)}.en>i{background:var(--blue)}.xp>i{background:var(--green)}
+.row{display:flex;justify-content:space-between;gap:8px;flex-wrap:wrap}
+nav{display:flex;flex-wrap:wrap;gap:6px;margin:10px 0}
+button{font:inherit;background:var(--panel2);color:var(--paper);border:2px solid #8b6338;border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover:not(:disabled){background:#7a5632}
+button:disabled{opacity:.45;cursor:not-allowed}
+nav button.on{background:var(--gold);color:var(--ink);border-color:#fff3}
+.list>div{display:flex;justify-content:space-between;align-items:center;gap:10px;padding:8px;margin:6px 0;background:#3a2615;border-radius:6px}
+.list small{opacity:.75;display:block}
+#log{height:140px;overflow:auto;background:#1d130b;border-radius:6px;padding:8px;font-size:13px;margin-top:10px}
+#log p{margin:2px 0}.g{color:#9fd36b}.b{color:#ff8a78}.y{color:var(--gold)}
+.skills{display:grid;grid-template-columns:repeat(2,1fr);gap:4px 14px}
+.pill{background:#1d130b;border-radius:10px;padding:1px 8px;font-size:12px}
+.modal{position:fixed;inset:0;background:#000b;display:flex;align-items:center;justify-content:center;z-index:9;padding:10px}
+.modal .card{max-width:480px;width:100%;background:var(--paper);color:var(--ink)}
+.modal h2{color:var(--red)}
+.modal input{font:inherit;width:100%;padding:6px;margin:4px 0 10px}
+.cls{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.cls button{background:#d8c490;color:var(--ink);text-align:left}
+.cls button.on{background:var(--gold);outline:3px solid var(--red)}
+.cls small{display:block}
+</style>
+</head>
+<body>
+<div id="app">
+  <h1>★ ДИКИЙ ЗАПАД ★</h1>
+  <div class="top">
+    <div class="card" id="hero"></div>
+    <div class="card" id="skills"></div>
+  </div>
+  <nav id="nav"></nav>
+  <div class="card" id="view"></div>
+  <div id="log"></div>
+</div>
+<div id="modal"></div>
+
+<script>
+"use strict";
+const $ = s => document.querySelector(s);
+const rnd = (a, b) => Math.floor(Math.random() * (b - a + 1)) + a;
+const SAVE = "wildwest_save_v1";
+
+// ===== Данные =====
+const CLASSES = {
+  gunslinger: {n: "Стрелок",    d: "Мастер дуэлей",     s: {shoot: 6, aim: 4, hide: 2, endur: 1, dodge: 1}},
+  worker:     {n: "Работяга",   d: "Лучший на работах", s: {shoot: 1, aim: 1, hide: 1, endur: 6, dodge: 2, work: 6}},
+  adventurer: {n: "Авантюрист", d: "Ловкий и хитрый",   s: {shoot: 2, aim: 2, hide: 5, endur: 2, dodge: 5}},
+  soldier:    {n: "Солдат",     d: "Крепкий здоровяк",  s: {shoot: 3, aim: 3, hide: 1, endur: 5, dodge: 2}}
+};
+const SKILLS = {
+  shoot: "Стрельба", aim: "Меткость", hide: "Укрытие",
+  endur: "Выносливость", dodge: "Ловкость", work: "Трудолюбие"
+};
+const JOBS = [
+  {n: "Собрать хлопок",         lvl: 1, e: 10, g: [8, 14],    x: 8},
+  {n: "Пасти коров",            lvl: 1, e: 12, g: [10, 18],   x: 10},
+  {n: "Мыть посуду в салуне",   lvl: 2, e: 14, g: [16, 26],   x: 14},
+  {n: "Чинить железную дорогу", lvl: 4, e: 20, g: [30, 48],   x: 24},
+  {n: "Рыть золото в шахте",    lvl: 6, e: 28, g: [55, 90],   x: 40},
+  {n: "Охранять дилижанс",      lvl: 9, e: 35, g: [100, 170], x: 70}
+];
+const OUTLAWS = [
+  {n: "Пьяный ковбой",   lvl: 1,  hp: 30,  dmg: [3, 6],   g: [10, 20],   x: 15},
+  {n: "Мелкий воришка",  lvl: 2,  hp: 45,  dmg: [4, 8],   g: [18, 35],   x: 25},
+  {n: "Бандит Джо",      lvl: 4,  hp: 80,  dmg: [7, 12],  g: [40, 70],   x: 50},
+  {n: "Шериф-отступник", lvl: 7,  hp: 140, dmg: [11, 18], g: [90, 150],  x: 100},
+  {n: "Одноглазый Сэм",  lvl: 10, hp: 220, dmg: [16, 26], g: [200, 320], x: 200},
+  {n: "Билли Кид",       lvl: 14, hp: 340, dmg: [24, 38], g: [450, 700], x: 400}
+];
+const SHOP = [
+  {id: "colt",   n: "Кольт «Миротворец»", slot: "gun",  p: 120,  b: 4,  lvl: 1},
+  {id: "winch",  n: "Винчестер",         slot: "gun",  p: 450,  b: 10, lvl: 4},
+  {id: "dbl",    n: "Двустволка",        slot: "gun",  p: 1200, b: 18, lvl: 8},
+  {id: "hat",    n: "Ковбойская шляпа",  slot: "hat",  p: 60,   b: 2,  lvl: 1},
+  {id: "sher",   n: "Шляпа шерифа",      slot: "hat",  p: 380,  b: 6,  lvl: 5},
+  {id: "vest",   n: "Кожаный жилет",     slot: "body", p: 150,  b: 4,  lvl: 2},
+  {id: "poncho", n: "Пончо",             slot: "body", p: 700,  b: 10, lvl: 6},
+  {id: "boots",  n: "Сапоги со шпорами", slot: "feet", p: 90,   b: 3,  lvl: 1}
+];
+const SLOTS = {gun: "Оружие", hat: "Голова", body: "Тело", feet: "Ноги"};
+const QUESTS = [
+  {id: "q1", n: "Первая кровь",      d: "Выиграй 1 дуэль",   t: "duel", c: 1,  g: 50,  x: 40},
+  {id: "q2", n: "Трудяга",           d: "Заверши 3 работы",  t: "job",  c: 3,  g: 60,  x: 50},
+  {id: "q3", n: "Шериф города",      d: "Выиграй 5 дуэлей",  t: "duel", c: 5,  g: 200, x: 150},
+  {id: "q4", n: "Золотая лихорадка", d: "Заверши 10 работ",  t: "job",  c: 10, g: 300, x: 200},
+  {id: "q5", n: "Гроза бандитов",    d: "Выиграй 15 дуэлей", t: "duel", c: 15, g: 800, x: 500}
+];
+
+// ===== Состояние =====
+let S = null, tab = "work";
+const xpFor = l => Math.floor(60 * Math.pow(l, 1.55));
+const maxHp = () => 80 + S.lvl * 12 + S.sk.endur * 8;
+const it = id => SHOP.find(i => i.id === id);
+const bonus = () => Object.values(S.eq).reduce((a, id) => a + it(id).b, 0);
+const atk = () => S.sk.shoot * 2 + S.sk.aim + bonus();
+const def = () => S.sk.hide + S.sk.dodge + Math.floor(bonus() / 2);
+const esc = s => s.replace(/[&<>"]/g, c => ({"&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;"}[c]));
+
+function newGame(name, cls) {
+  S = {
+    name, cls, lvl: 1, xp: 0, pts: 0, gold: 50, bank: 0,
+    hp: 0, en: 100, enMax: 100,
+    sk: Object.assign({shoot: 1, aim: 1, hide: 1, endur: 1, dodge: 1, work: 1}, CLASSES[cls].s),
+    inv: [], eq: {}, stats: {duel: 0, job: 0, lost: 0}, done: {}, ts: Date.now()
+  };
+  S.hp = maxHp();
+  log("Добро пожаловать в Дикий Запад, " + name + "!", "y");
+  save();
+}
+const save = () => { try { localStorage.setItem(SAVE, JSON.stringify(S)); } catch (e) {} };
+function load() { try { S = JSON.parse(localStorage.getItem(SAVE)); } catch (e) { S = null; } return !!S; }
+
+function log(t, c) {
+  const p = document.createElement("p");
+  if (c) p.className = c;
+  p.textContent = t;
+  const L = $("#log"); L.prepend(p);
+  while (L.children.length > 60) L.lastChild.remove();
+}
+
+function regen() {
+  const now = Date.now(), min = (now - S.ts) / 60000;
+  if (min >= 0.05) {
+    S.en = Math.min(S.enMax, S.en + min * 4);                       // 4 энергии в минуту
+    S.hp = Math.min(maxHp(), S.hp + min * (2 + S.sk.endur * .4));
+    S.ts = now;
+  }
+}
+function gainXp(x) {
+  S.xp += x;
+  while (S.xp >= xpFor(S.lvl)) {
+    S.xp -= xpFor(S.lvl); S.lvl++; S.pts += 3;
+    S.hp = maxHp(); S.en = S.enMax;
+    log("★ Новый уровень: " + S.lvl + "! +3 очка навыков", "y");
+  }
+}
+
+// ===== Действия =====
+function doJob(i) {
+  const j = JOBS[i];
+  if (S.en < j.e) return log("Не хватает энергии!", "b");
+  S.en -= j.e;
+  const g = Math.round(rnd(...j.g) * (1 + S.sk.work * .06));
+  S.gold += g; S.stats.job++;
+  gainXp(j.x);
+  log("Работа «" + j.n + "»: +" + g + " $, +" + j.x + " опыта", "g");
+  render(); save();
+}
+function duel(i) {
+  const o = OUTLAWS[i];
+  if (S.en < 15) return log("Нужно 15 энергии для дуэли!", "b");
+  if (S.hp < 15) return log("Ты слишком ранен! Отдохни в салуне.", "b");
+  S.en -= 15;
+  let eh = o.hp + o.lvl * 4, round = 0;
+  while (eh > 0 && S.hp > 0 && round < 40) {
+    round++;
+    if (Math.random() < Math.min(.9, .5 + (atk() - o.lvl * 3) * .015)) eh -= Math.round(atk() * 1.3 + rnd(3, 9));
+    if (eh <= 0) break;
+    if (Math.random() > Math.min(.6, def() * .012)) S.hp -= Math.max(1, rnd(...o.dmg) - Math.floor(def() / 4));
+  }
+  if (eh <= 0) {
+    const g = rnd(...o.g);
+    S.gold += g; S.stats.duel++;
+    gainXp(o.x);
+    log("⚔ Победа над «" + o.n + "»! +" + g + " $, +" + o.x + " опыта (раундов: " + round + ")", "g");
+  } else {
+    S.hp = Math.max(1, S.hp);
+    const loss = Math.round(S.gold * .1);
+    S.gold -= loss; S.stats.lost++;
+    log("☠ Тебя ранил «" + o.n + "». Потеряно " + loss + " $", "b");
+  }
+  render(); save();
+}
+function buy(id) {
+  const i = it(id);
+  if (S.gold < i.p) return log("Не хватает денег!", "b");
+  if (S.lvl < i.lvl) return log("Нужен уровень " + i.lvl, "b");
+  S.gold -= i.p; S.inv.push(id);
+  if (!S.eq[i.slot]) S.eq[i.slot] = id;
+  log("Куплено: " + i.n, "y"); render(); save();
+}
+function equip(id) { S.eq[it(id).slot] = id; render(); save(); }
+function sell(id) {
+  const i = it(id);
+  S.inv.splice(S.inv.indexOf(id), 1);
+  if (S.eq[i.slot] === id && !S.inv.includes(id)) delete S.eq[i.slot];
+  S.gold += Math.floor(i.p / 2);
+  log("Продано: " + i.n, "y"); render(); save();
+}
+function saloon(kind) {
+  const c = {rest: 20, whisky: 40, room: 90}[kind];
+  if (S.gold < c) return log("Не хватает денег!", "b");
+  S.gold -= c;
+  if (kind === "rest")   { S.hp = Math.min(maxHp(), S.hp + 50); log("Ты поел и подлечился: +50 ЗДР", "g"); }
+  if (kind === "whisky") { S.en = Math.min(S.enMax, S.en + 40); log("Виски бодрит: +40 энергии", "g"); }
+  if (kind === "room")   { S.hp = maxHp(); S.en = S.enMax; log("Ты отлично выспался!", "g"); }
+  render(); save();
+}
+function bank(act) {
+  const v = Math.floor(+$("#bankAmt").value) || 0;
+  if (v <= 0) return;
+  if (act === "in") {
+    if (v > S.gold) return log("Нет столько денег!", "b");
+    S.gold -= v; S.bank += Math.floor(v * .95);
+    log("Внесено " + v + " $ (комиссия 5%)", "y");
+  } else {
+    if (v > S.bank) return log("На счету нет столько!", "b");
+    S.bank -= v; S.gold += v;
+    log("Снято " + v + " $", "y");
+  }
+  render(); save();
+}
+function addSkill(k) {
+  if (S.pts < 1) return;
+  S.pts--; S.sk[k]++;
+  if (k === "endur") S.hp += 8;
+  render(); save();
+}
+function claim(id) {
+  const q = QUESTS.find(q => q.id === id);
+  S.done[id] = 1; S.gold += q.g; gainXp(q.x);
+  log("Квест «" + q.n + "» выполнен! +" + q.g + " $, +" + q.x + " опыта", "y");
+  render(); save();
+}
+
+// ===== Отрисовка =====
+const bar = (cls, v, m, label) =>
+  `<div class="bar ${cls}"><i style="width:${Math.max(0, Math.min(100, v / m * 100))}%"></i><span>${label}</span></div>`;
+
+function render() {
+  regen();
+  $("#hero").innerHTML = `
+    <h2>🤠 ${esc(S.name)} — ${CLASSES[S.cls].n}, ур. ${S.lvl}</h2>
+    ${bar("hp", S.hp, maxHp(), "Здоровье " + Math.floor(S.hp) + "/" + maxHp())}
+    ${bar("en", S.en, S.enMax, "Энергия " + Math.floor(S.en) + "/" + S.enMax)}
+    ${bar("xp", S.xp, xpFor(S.lvl), "Опыт " + S.xp + "/" + xpFor(S.lvl))}
+    <div class="row"><span>💰 <b>${S.gold} $</b></span><span>🏦 ${S.bank} $</span>
+    <span>Дуэли: ${S.stats.duel} · Работы: ${S.stats.job}</span></div>`;
+  $("#skills").innerHTML = `
+    <h2>Навыки ${S.pts ? `<span class="pill">очков: ${S.pts}</span>` : ""}</h2>
+    <div class="skills">${Object.keys(SKILLS).map(k => `
+      <div class="row"><span>${SKILLS[k]}: <b>${S.sk[k]}</b></span>
+      <button ${S.pts ? "" : "disabled"} onclick="addSkill('${k}')">+</button></div>`).join("")}</div>
+    <div class="row" style="margin-top:6px"><span class="pill">Атака ${atk()}</span><span class="pill">Защита ${def()}</span><span class="pill">Бонус вещей +${bonus()}</span></div>`;
+  const tabs = {work: "⛏ Работа", duel: "🔫 Дуэли", quest: "📜 Квесты", shop: "🛒 Магазин", bag: "🎒 Вещи", saloon: "🍺 Салун", bank: "🏦 Банк"};
+  $("#nav").innerHTML = Object.keys(tabs).map(k => `<button class="${k === tab ? "on" : ""}" onclick="tab='${k}';render()">${tabs[k]}</button>`).join("") +
+    `<button onclick="resetGame()" style="margin-left:auto">Новая игра</button>`;
+  const keep = $("#bankAmt") ? $("#bankAmt").value : "";
+  $("#view").innerHTML = views[tab]();
+  if ($("#bankAmt")) $("#bankAmt").value = keep;
+}
+
+const views = {
+  work: () => `<h2>Работа (расход энергии)</h2><div class="list">${JOBS.map((j, i) => `
+    <div><span>${j.n}<small>Ур. ${j.lvl} · ⚡${j.e} · ${j.g[0]}–${j.g[1]} $ · ${j.x} оп.</small></span>
+    <button ${S.lvl < j.lvl || S.en < j.e ? "disabled" : ""} onclick="doJob(${i})">Работать</button></div>`).join("")}</div>`,
+  duel: () => `<h2>Дуэли (⚡15 энергии)</h2><div class="list">${OUTLAWS.map((o, i) => `
+    <div><span>${o.n}<small>Ур. ${o.lvl} · ЗДР ${o.hp + o.lvl * 4} · урон ${o.dmg[0]}–${o.dmg[1]} · награда ${o.g[0]}–${o.g[1]} $</small></span>
+    <button ${S.lvl < o.lvl - 1 ? "disabled" : ""} onclick="duel(${i})">Вызвать</button></div>`).join("")}</div>`,
+  quest: () => `<h2>Доска объявлений</h2><div class="list">${QUESTS.map(q => {
+    const cur = Math.min(q.c, S.stats[q.t]), ok = cur >= q.c;
+    return `<div><span>${q.n}<small>${q.d} (${cur}/${q.c}) · награда ${q.g} $ + ${q.x} оп.</small></span>
+    ${S.done[q.id] ? "<b class='g'>✔</b>" : `<button ${ok ? "" : "disabled"} onclick="claim('${q.id}')">Забрать</button>`}</div>`;
+  }).join("")}</div>`,
+  shop: () => `<h2>Лавка Старого Билла</h2><div class="list">${SHOP.map(i => `
+    <div><span>${i.n}<small>${SLOTS[i.slot]} · +${i.b} · ур. ${i.lvl} · ${i.p} $</small></span>
+    <button ${S.gold < i.p || S.lvl < i.lvl ? "disabled" : ""} onclick="buy('${i.id}')">Купить</button></div>`).join("")}</div>`,
+  bag: () => !S.inv.length ? "<h2>Вещи</h2><p>Пусто. Загляни в магазин.</p>" :
+    `<h2>Вещи</h2><div class="list">${[...new Set(S.inv)].map(id => {
+      const i = it(id), n = S.inv.filter(x => x === id).length;
+      return `<div><span>${i.n} ×${n}<small>${SLOTS[i.slot]} · +${i.b}${S.eq[i.slot] === id ? " · <b class='y'>надето</b>" : ""}</small></span>
+      <span><button onclick="equip('${id}')">Надеть</button> <button onclick="sell('${id}')">Продать ${Math.floor(i.p / 2)}$</button></span></div>`;
+    }).join("")}</div>`,
+  saloon: () => `<h2>Салун «Рыжая лошадь»</h2><div class="list">
+    <div><span>Плотный обед<small>+50 здоровья</small></span><button ${S.gold < 20 ? "disabled" : ""} onclick="saloon('rest')">20 $</button></div>
+    <div><span>Стакан виски<small>+40 энергии</small></span><button ${S.gold < 40 ? "disabled" : ""} onclick="saloon('whisky')">40 $</button></div>
+    <div><span>Номер на ночь<small>полное восстановление</small></span><button ${S.gold < 90 ? "disabled" : ""} onclick="saloon('room')">90 $</button></div></div>
+    <p><small>Энергия и здоровье также восстанавливаются сами, даже когда ты не в игре.</small></p>`,
+  bank: () => `<h2>Банк Уэллс-Фарго</h2><p>На счету: <b>${S.bank} $</b>. Деньги в банке не отнимут после проигранной дуэли.</p>
+    <input id="bankAmt" type="number" min="1" placeholder="Сумма" style="padding:6px;font:inherit">
+    <button onclick="bank('in')">Положить</button> <button onclick="bank('out')">Снять</button>`
+};
+
+function resetGame() {
+  if (confirm("Начать новую игру? Текущее сохранение будет удалено.")) { try { localStorage.removeItem(SAVE); } catch (e) {} start(); }
+}
+function start() {
+  if (load()) { regen(); render(); log("С возвращением, " + S.name + "!", "y"); return; }
+  let cls = "gunslinger";
+  $("#modal").innerHTML = `<div class="modal"><div class="card"><h2>Создай ковбоя</h2>
+    <label>Имя</label><input id="nm" maxlength="16" value="Джесси">
+    <label>Класс</label><div class="cls">${Object.keys(CLASSES).map(k =>
+      `<button data-c="${k}" class="${k === cls ? "on" : ""}"><b>${CLASSES[k].n}</b><small>${CLASSES[k].d}</small></button>`).join("")}</div>
+    <p><button id="go" style="width:100%;margin-top:10px;background:var(--red)">В путь!</button></p></div></div>`;
+  document.querySelectorAll(".cls button").forEach(b => b.onclick = () => {
+    cls = b.dataset.c; document.querySelectorAll(".cls button").forEach(x => x.classList.toggle("on", x === b));
+  });
+  $("#go").onclick = () => {
+    newGame($("#nm").value.trim() || "Ковбой", cls);
+    $("#modal").innerHTML = ""; render();
+  };
+}
+setInterval(() => { if (S) { render(); save(); } }, 10000);
+start();
+</script>
+</body>
+</html>
